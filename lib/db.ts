@@ -12,7 +12,7 @@ function createPool() {
     max: 3, // critical: keep low for serverless concurrency
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 10000,
-    ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false },
+    ssl: false,
   })
 }
 
