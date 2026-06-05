@@ -62,7 +62,7 @@ export async function getHeartbeat(): Promise<WorkerHeartbeat | null> {
 
 export async function resetStuckTasks(): Promise<number> {
   const res = await pool.query(
-    "UPDATE cs_py_int.simulation_tasks SET status = 'Pending' WHERE status = 'Processing'"
+    "UPDATE cs_py_int.simulation_tasks SET status = 'Pending' WHERE status IN ('Processing', 'Error')"
   )
   return res.rowCount ?? 0
 }

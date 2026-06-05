@@ -60,7 +60,7 @@ export default function ConfigurationPage() {
       <div className="card space-y-4">
         <p className="label">Admin Actions</p>
         <p className="text-sm text-gray-500">
-          Reset tasks stuck in &quot;Processing&quot; state back to &quot;Pending&quot; so the worker picks them up again.
+          Reset tasks stuck in &quot;Processing&quot; or &quot;Error&quot; state back to &quot;Pending&quot; so the worker picks them up again.
         </p>
         <div className="space-y-3">
           <input
@@ -75,7 +75,7 @@ export default function ConfigurationPage() {
             disabled={!password || status === 'loading'}
             className="btn-primary w-full"
           >
-            {status === 'loading' ? 'Resetting…' : 'Reset Incomplete Tasks'}
+            {status === 'loading' ? 'Resetting…' : 'Reset Processing & Error Tasks'}
           </button>
           {status === 'success' && (
             <p className="text-sm text-emerald-600">{message}</p>
