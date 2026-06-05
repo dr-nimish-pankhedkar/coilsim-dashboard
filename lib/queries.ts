@@ -1,9 +1,14 @@
 import { pool } from './db'
-import type { SimulationTask, ProfileDetail, YieldRecord, WorkerHeartbeat } from './types'
+import type {
+  SimulationTask, ProfileDetail, YieldRecord, WorkerHeartbeat,
+  CoilGeometry, FeedstockDefinition, LegDefinition, ComponentDefinition,
+} from './types'
+
+// ── Dashboard ───────────────────────────────────────────────────────────────
 
 export async function getLatestTask(): Promise<SimulationTask | null> {
   const res = await pool.query<SimulationTask>(
-    "SELECT * FROM cs_py_int.simulation_tasks ORDER BY id DESC LIMIT 1"
+    'SELECT * FROM cs_py_int.simulation_tasks ORDER BY id DESC LIMIT 1'
   )
   return res.rows[0] ?? null
 }
@@ -31,9 +36,11 @@ export async function getYieldsForTask(taskId: number): Promise<YieldRecord[]> {
   return res.rows
 }
 
+// ── Logs ────────────────────────────────────────────────────────────────────
+
 export async function getAllTasks(): Promise<SimulationTask[]> {
   const res = await pool.query<SimulationTask>(
-    'SELECT id, status, created_at, completed_at, cot_input, flow_input FROM cs_py_int.simulation_tasks ORDER BY id DESC'
+    'SELECT id, status, task_type, created_at, completed_at, cot_input, flow_input, project_name, coil_id, feed_id FROM cs_py_int.simulation_tasks ORDER BY id DESC'
   )
   return res.rows
 }
@@ -52,17 +59,78 @@ export async function getAllProfiles(): Promise<ProfileDetail[]> {
   return res.rows
 }
 
+// ── Worker ──────────────────────────────────────────────────────────────────
+
 export async function getHeartbeat(): Promise<WorkerHeartbeat | null> {
-  // Get the most recently pulsed worker row
   const res = await pool.query<WorkerHeartbeat>(
     'SELECT worker_name, last_pulse, status_message, current_task_id FROM cs_py_int.worker_heartbeat ORDER BY last_pulse DESC LIMIT 1'
   )
   return res.rows[0] ?? null
 }
 
+// ── Admin ───────────────────────────────────────────────────────────────────
+
 export async function resetStuckTasks(): Promise<number> {
   const res = await pool.query(
     "UPDATE cs_py_int.simulation_tasks SET status = 'Pending' WHERE status IN ('Processing', 'Error')"
   )
   return res.rowCount ?? 0
+}
+
+// ── Coil Geometries ─────────────────────────────────────────────────────────
+
+export async function getAllCoilGeometries(): Promise<CoilGeometry[]> {
+  const res = await pool.query<CoilGeometry>(
+    'SELECT id, name, ncoil, legs, adiabatic_flag, created_at FROM cs_py_int.coil_geometries ORDER BY id DESC'
+  )
+  return res.rows
+}
+
+export async function insertCoilGeometry(
+  name: string, ncoil: number, legs: LegDefinition[], adiabatic_flag: boolean
+): Promise<number> {
+  const res = await pool.query<{ id: number }>(
+    'INSERT INTO cs_py_int.coil_geometries (name, ncoil, legs, adiabatic_flag) VALUES ($1, $2, $3, $4) RETURNING id',
+    [name, ncoil, JSON.stringify(legs), adiabatic_flag]
+  )
+  return res.rows[0].id
+}
+
+// ── Feedstock Definitions ───────────────────────────────────────────────────
+
+export async function getAllFeedstockDefinitions(): Promise<FeedstockDefinition[]> {
+  const res = await pool.query<FeedstockDefinition>(
+    'SELECT id, name, components, product_ids, created_at FROM cs_py_int.feedstock_definitions ORDER BY id DESC'
+  )
+  return res.rows
+}
+
+export async function insertFeedstockDefinition(
+  name: string, components: ComponentDefinition[], product_ids: number[]
+): Promise<number> {
+  const res = await pool.query<{ id: number }>(
+    'INSERT INTO cs_py_int.feedstock_definitions (name, components, product_ids) VALUES ($1, $2, $3) RETURNING id',
+    [name, JSON.stringify(components), JSON.stringify(product_ids)]
+  )
+  return res.rows[0].id
+}
+
+// ── Run submission ───────────────────────────────────────────────────────────
+
+export async function submitHourlyRun(cot: number, flow: number): Promise<number> {
+  const res = await pool.query<{ id: number }>(
+    "INSERT INTO cs_py_int.simulation_tasks (status, task_type, cot_input, flow_input) VALUES ('Pending', 'hourly', $1, $2) RETURNING id",
+    [cot, flow]
+  )
+  return res.rows[0].id
+}
+
+export async function submitFreshRun(
+  coil_id: number, feed_id: number, cot: number, flow: number, project_name: string
+): Promise<number> {
+  const res = await pool.query<{ id: number }>(
+    "INSERT INTO cs_py_int.simulation_tasks (status, task_type, coil_id, feed_id, cot_input, flow_input, project_name) VALUES ('Pending', 'fresh', $1, $2, $3, $4, $5) RETURNING id",
+    [coil_id, feed_id, cot, flow, project_name]
+  )
+  return res.rows[0].id
 }
