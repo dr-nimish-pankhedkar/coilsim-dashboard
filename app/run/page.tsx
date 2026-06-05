@@ -39,25 +39,46 @@ const FLUX_PROFILES = [
   { value: 5, label: 'Long flame' },
 ]
 
-// Component IDs from thermochemistry.i (Table 4.1, manual p.132)
-const COMPONENT_REF: Record<number, string> = {
-  1:   'H₂',
-  2:   'CH₄',
-  4:   'C₂H₄  (Ethylene)',
-  5:   'C₂H₆  (Ethane)',
-  8:   'C₃H₆  (Propylene)',
-  9:   'C₃H₈  (Propane)',
-  14:  'iC₄H₁₀ (Isobutane)',
-  15:  'nC₄H₁₀ (n-Butane)',
-  27:  'Neo-C₅ (Neopentane)',
-  28:  'iC₅    (Isopentane)',
-  29:  'nC₅    (n-Pentane)',
-  74:  'C₆ 2-methyl-ipar',
-  243: 'C₆ n-paraffin',
-  244: 'C₇ n-paraffin',
-  245: 'C₈ n-paraffin',
-  246: 'C₉ n-paraffin',
-}
+// Component list from thermochemistry.i (Table 4.1, manual p.132)
+// { id, name, formula, group }
+const COMPONENTS = [
+  // Light gases
+  { id: 1,   name: 'Hydrogen',        formula: 'H₂',         group: 'Light gases' },
+  { id: 2,   name: 'Methane',         formula: 'CH₄',        group: 'Light gases' },
+  // Olefins
+  { id: 4,   name: 'Ethylene',        formula: 'C₂H₄',       group: 'Olefins' },
+  { id: 8,   name: 'Propylene',       formula: 'C₃H₆',       group: 'Olefins' },
+  { id: 11,  name: '1-Butene',        formula: 'C₄H₈',       group: 'Olefins' },
+  { id: 18,  name: '1,3-Butadiene',   formula: 'C₄H₆',       group: 'Olefins' },
+  // Paraffins C2-C4
+  { id: 5,   name: 'Ethane',          formula: 'C₂H₆',       group: 'Paraffins C2–C4' },
+  { id: 9,   name: 'Propane',         formula: 'C₃H₈',       group: 'Paraffins C2–C4' },
+  { id: 15,  name: 'n-Butane',        formula: 'nC₄H₁₀',     group: 'Paraffins C2–C4' },
+  { id: 14,  name: 'Isobutane',       formula: 'iC₄H₁₀',     group: 'Paraffins C2–C4' },
+  // Paraffins C5
+  { id: 29,  name: 'n-Pentane',       formula: 'nC₅H₁₂',     group: 'Paraffins C5' },
+  { id: 28,  name: 'Isopentane',      formula: 'iC₅H₁₂',     group: 'Paraffins C5' },
+  { id: 27,  name: 'Neopentane',      formula: 'neo-C₅H₁₂',  group: 'Paraffins C5' },
+  // Paraffins C6+
+  { id: 243, name: 'n-Hexane',        formula: 'nC₆H₁₄',     group: 'Paraffins C6+' },
+  { id: 74,  name: '2-Methylpentane', formula: 'iC₆H₁₄',     group: 'Paraffins C6+' },
+  { id: 244, name: 'n-Heptane',       formula: 'nC₇H₁₆',     group: 'Paraffins C6+' },
+  { id: 245, name: 'n-Octane',        formula: 'nC₈H₁₈',     group: 'Paraffins C6+' },
+  { id: 246, name: 'n-Nonane',        formula: 'nC₉H₂₀',     group: 'Paraffins C6+' },
+  // Naphthenes
+  { id: 38,  name: 'Cyclopentane',    formula: 'cC₅H₁₀',     group: 'Naphthenes' },
+  { id: 39,  name: 'Cyclohexane',     formula: 'cC₆H₁₂',     group: 'Naphthenes' },
+  { id: 40,  name: 'Methylcyclohexane', formula: 'MCC₆',     group: 'Naphthenes' },
+  // Aromatics
+  { id: 66,  name: 'Benzene',         formula: 'C₆H₆',       group: 'Aromatics' },
+  { id: 67,  name: 'Toluene',         formula: 'C₇H₈',       group: 'Aromatics' },
+  { id: 68,  name: 'Ethylbenzene',    formula: 'C₈H₁₀',      group: 'Aromatics' },
+  { id: 69,  name: 'o-Xylene',        formula: 'oC₈H₁₀',     group: 'Aromatics' },
+]
+
+// Build fast lookup maps
+const COMP_BY_ID: Record<number, typeof COMPONENTS[number]> = Object.fromEntries(COMPONENTS.map(c => [c.id, c]))
+const COMP_GROUPS = [...new Set(COMPONENTS.map(c => c.group))]
 
 // ── Shared UI styles ─────────────────────────────────────────────────────────
 const inp = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent bg-white'
@@ -244,7 +265,7 @@ function FreshRunTab() {
   const wtWarn  = Math.abs(totalWt - 1) > 0.001
 
   function addComp() {
-    setComps(prev => [...prev, { _key: nextKey, component_id: 2, wt_frac: 0, in_conversion: false }])
+    setComps(prev => [...prev, { _key: nextKey, component_id: COMPONENTS[0].id, wt_frac: 0, in_conversion: false }])
     setNextKey(k => k + 1)
   }
   function removeComp(key: number) { setComps(prev => prev.filter(c => c._key !== key)) }
@@ -493,60 +514,62 @@ function FreshRunTab() {
               </div>
             </div>
 
-            {/* Component ref */}
-            <details className="rounded-lg border border-gray-100">
-              <summary className="px-3 py-2 text-xs text-gray-500 cursor-pointer hover:bg-gray-50 rounded-lg select-none">
-                📋 Component ID reference (thermochemistry.i)
-              </summary>
-              <div className="px-3 pb-3 grid grid-cols-2 gap-1 mt-2">
-                {Object.entries(COMPONENT_REF).map(([id, name]) => (
-                  <div key={id} className="flex items-center gap-2 text-xs text-gray-500">
-                    <span className="font-mono w-8 text-gray-400">{id}</span>
-                    <span>{name}</span>
-                  </div>
-                ))}
-              </div>
-            </details>
-
             {/* Component rows */}
-            <div className="overflow-x-auto rounded-lg border border-gray-100">
+            <div className="rounded-lg border border-gray-100 overflow-hidden">
               <table className="w-full text-xs">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="text-left px-3 py-2 label">Component ID</th>
-                    <th className="text-left px-3 py-2 label">Name</th>
+                    <th className="text-left px-3 py-2 label w-2/5">Component</th>
+                    <th className="text-left px-3 py-2 label w-16">ID</th>
                     <th className="text-left px-3 py-2 label">Weight fraction</th>
                     <th className="text-left px-3 py-2 label">In conversion</th>
-                    <th className="px-2 py-2"></th>
+                    <th className="px-2 py-2 w-6"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {comps.map(c => (
-                    <tr key={c._key} className="border-t border-gray-50">
-                      <td className="px-2 py-1.5">
-                        <input type="number" min={1} value={c.component_id}
-                          onChange={e => updateComp(c._key, 'component_id', e.target.value)}
-                          className={smallInp + ' w-16'} />
-                      </td>
-                      <td className="px-3 py-1.5 text-gray-400 whitespace-nowrap">
-                        {COMPONENT_REF[c.component_id] ?? '—'}
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <input type="number" step="0.0001" min={0} max={1} value={c.wt_frac}
-                          onChange={e => updateComp(c._key, 'wt_frac', e.target.value)}
-                          className={smallInp + ' w-24'} />
-                      </td>
-                      <td className="px-4 py-1.5">
-                        <input type="checkbox" checked={c.in_conversion}
-                          onChange={e => updateComp(c._key, 'in_conversion', e.target.checked)}
-                          className="w-4 h-4 rounded accent-gray-900" />
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <button onClick={() => removeComp(c._key)}
-                          className="text-gray-300 hover:text-red-400 text-base leading-none">×</button>
-                      </td>
-                    </tr>
-                  ))}
+                  {comps.map(c => {
+                    const info = COMP_BY_ID[c.component_id]
+                    return (
+                      <tr key={c._key} className="border-t border-gray-50">
+                        {/* Name dropdown grouped by chemical family */}
+                        <td className="px-2 py-1.5">
+                          <select
+                            value={c.component_id}
+                            onChange={e => updateComp(c._key, 'component_id', e.target.value)}
+                            className={smallInp}
+                          >
+                            {COMP_GROUPS.map(group => (
+                              <optgroup key={group} label={group}>
+                                {COMPONENTS.filter(x => x.group === group).map(x => (
+                                  <option key={x.id} value={x.id}>
+                                    {x.name} ({x.formula})
+                                  </option>
+                                ))}
+                              </optgroup>
+                            ))}
+                          </select>
+                        </td>
+                        {/* Auto-mapped ID (read-only) */}
+                        <td className="px-3 py-1.5 font-mono text-gray-400 text-center">
+                          {c.component_id}
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <input type="number" step="0.0001" min={0} max={1} value={c.wt_frac}
+                            onChange={e => updateComp(c._key, 'wt_frac', e.target.value)}
+                            className={smallInp + ' w-24'} />
+                        </td>
+                        <td className="px-4 py-1.5">
+                          <input type="checkbox" checked={c.in_conversion}
+                            onChange={e => updateComp(c._key, 'in_conversion', e.target.checked)}
+                            className="w-4 h-4 rounded accent-gray-900" />
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <button onClick={() => removeComp(c._key)}
+                            className="text-gray-300 hover:text-red-400 text-base leading-none">×</button>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
