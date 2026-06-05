@@ -1,17 +1,22 @@
 import { NextResponse } from 'next/server'
-import { getLatestTask, getProfileForTask, getYieldsForTask } from '@/lib/queries'
+import { getLatestTask, getLatestCompletedTask, getProfileForTask, getYieldsForTask } from '@/lib/queries'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {
+    // Latest task (any status) for schematic/KPI display
     const task = await getLatestTask()
     if (!task) return NextResponse.json({ task: null, profiles: [], yields: [] })
 
-    const [profiles, yields] = await Promise.all([
-      getProfileForTask(task.id),
-      getYieldsForTask(task.id),
-    ])
+    // Profiles and yields come from the latest *completed* run
+    const completedTask = await getLatestCompletedTask()
+    const [profiles, yields] = completedTask
+      ? await Promise.all([
+          getProfileForTask(completedTask.id),
+          getYieldsForTask(completedTask.id),
+        ])
+      : [[], []]
 
     return NextResponse.json({ task, profiles, yields })
   } catch (err) {

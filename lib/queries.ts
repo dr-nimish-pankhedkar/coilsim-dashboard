@@ -3,6 +3,13 @@ import type { SimulationTask, ProfileDetail, YieldRecord, WorkerHeartbeat } from
 
 export async function getLatestTask(): Promise<SimulationTask | null> {
   const res = await pool.query<SimulationTask>(
+    "SELECT * FROM cs_py_int.simulation_tasks ORDER BY id DESC LIMIT 1"
+  )
+  return res.rows[0] ?? null
+}
+
+export async function getLatestCompletedTask(): Promise<SimulationTask | null> {
+  const res = await pool.query<SimulationTask>(
     "SELECT * FROM cs_py_int.simulation_tasks WHERE status = 'Completed' ORDER BY id DESC LIMIT 1"
   )
   return res.rows[0] ?? null

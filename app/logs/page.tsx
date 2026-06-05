@@ -30,8 +30,9 @@ function fmt(d: string | null) {
 }
 
 function TaskSummaryTab() {
-  const { data, isLoading } = useSWR<SimulationTask[]>('/api/logs/tasks', fetcher)
+  const { data, isLoading, error } = useSWR<SimulationTask[]>('/api/logs/tasks', fetcher)
   if (isLoading) return <p className="text-sm text-gray-400 py-8 text-center">Loading…</p>
+  if (error || (data as any)?.error) return <p className="text-sm text-red-400 py-8 text-center">Database connection error — check firewall / env vars.</p>
   if (!data?.length) return <p className="text-sm text-gray-400 py-8 text-center">No tasks found.</p>
   return (
     <div className="overflow-x-auto">
