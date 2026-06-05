@@ -46,6 +46,12 @@ export default function Sidebar() {
         <p className="text-xs text-gray-400 mt-0.5">Digital Twin</p>
       </div>
 
+      {/* Worker status at top */}
+      <div className="px-4 py-4 border-b border-gray-100">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-2">Worker Status</p>
+        <WorkerBadge />
+      </div>
+
       {/* Nav links */}
       <nav className="flex-1 px-3 py-4 space-y-0.5">
         <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-2 pb-2">Navigation</p>
@@ -68,11 +74,6 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Worker status at bottom */}
-      <div className="px-4 py-4 border-t border-gray-100">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-2">Worker Status</p>
-        <WorkerBadge />
-      </div>
     </aside>
   )
 }
