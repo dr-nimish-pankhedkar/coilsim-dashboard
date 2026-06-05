@@ -1,3 +1,7 @@
 .env.local
+.env*.local
 .next/
 node_modules/
+
+# Local dev scripts that may contain credentials
+scripts/inspect-db.mjs
