@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --danger: #d32f2f;
+  --accent: #1976d2;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    @apply bg-white text-gray-900 antialiased;
+  }
+  /* Minimal scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { @apply bg-gray-100; }
+  ::-webkit-scrollbar-thumb { @apply bg-gray-300 rounded; }
+}
+
+@layer components {
+  .card {
+    @apply bg-white border border-gray-100 rounded-xl p-5 shadow-sm;
+  }
+  .label {
+    @apply text-xs font-semibold uppercase tracking-widest text-gray-400;
+  }
+  .btn-primary {
+    @apply bg-gray-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-40;
+  }
+  .btn-ghost {
+    @apply text-sm font-medium px-4 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors;
+  }
+  .tab-active {
+    @apply border-b-2 border-gray-900 text-gray-900 font-semibold;
+  }
+  .tab-inactive {
+    @apply border-b-2 border-transparent text-gray-400 hover:text-gray-700 transition-colors;
+  }
+  .status-completed { @apply bg-emerald-50 text-emerald-700; }
+  .status-processing { @apply bg-blue-50 text-blue-700; }
+  .status-pending    { @apply bg-amber-50 text-amber-700; }
+  .status-failed     { @apply bg-red-50 text-red-700; }
+}
