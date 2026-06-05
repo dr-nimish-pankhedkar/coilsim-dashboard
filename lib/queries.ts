@@ -53,7 +53,10 @@ export async function getAllProfiles(): Promise<ProfileDetail[]> {
 }
 
 export async function getHeartbeat(): Promise<WorkerHeartbeat | null> {
-  const res = await pool.query<WorkerHeartbeat>('SELECT * FROM cs_py_int.worker_heartbeat LIMIT 1')
+  // Get the most recently pulsed worker row
+  const res = await pool.query<WorkerHeartbeat>(
+    'SELECT worker_name, last_pulse, status_message, current_task_id FROM cs_py_int.worker_heartbeat ORDER BY last_pulse DESC LIMIT 1'
+  )
   return res.rows[0] ?? null
 }
 

@@ -21,7 +21,10 @@ export interface YieldRecord {
 }
 
 export interface WorkerHeartbeat {
+  worker_name: string
   last_pulse: string
+  status_message: string | null
+  current_task_id: number | null
 }
 
 export interface DashboardData {
