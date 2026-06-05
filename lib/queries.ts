@@ -87,11 +87,12 @@ export async function getAllCoilGeometries(): Promise<CoilGeometry[]> {
 }
 
 export async function insertCoilGeometry(
-  name: string, ncoil: number, legs: LegDefinition[], adiabatic_flag: boolean
+  name: string, ncoil: number, legs: LegDefinition[], adiabatic_flag: boolean,
+  extra?: Record<string, unknown>
 ): Promise<number> {
   const res = await pool.query<{ id: number }>(
     'INSERT INTO cs_py_int.coil_geometries (name, ncoil, legs, adiabatic_flag) VALUES ($1, $2, $3, $4) RETURNING id',
-    [name, ncoil, JSON.stringify(legs), adiabatic_flag]
+    [name, ncoil, JSON.stringify(extra ? { legs, ...extra } : legs), adiabatic_flag]
   )
   return res.rows[0].id
 }
@@ -117,20 +118,41 @@ export async function insertFeedstockDefinition(
 
 // ── Run submission ───────────────────────────────────────────────────────────
 
-export async function submitHourlyRun(cot: number, flow: number): Promise<number> {
+export interface RunParams {
+  cot: number
+  flow: number
+  dilution?: number       // kg steam / kg HC  (exp.txt row 8)
+  cit?: number            // Coil Inlet Temperature °C (exp.txt row 9)
+  cip?: number            // Coil Inlet Pressure atm   (exp.txt row 10)
+  severity_type?: number  // shooting flag 1-12        (exp.txt row 1)
+  flux_profile?: number   // heat flux profile 1-5     (exp.txt row 6)
+}
+
+export async function submitHourlyRun(p: RunParams): Promise<number> {
   const res = await pool.query<{ id: number }>(
-    "INSERT INTO cs_py_int.simulation_tasks (status, task_type, cot_input, flow_input) VALUES ('Pending', 'hourly', $1, $2) RETURNING id",
-    [cot, flow]
+    `INSERT INTO cs_py_int.simulation_tasks
+       (status, task_type, cot_input, flow_input,
+        dilution_ratio, cit_input, cip_input, severity_type, flux_profile)
+     VALUES ('Pending', 'hourly', $1, $2, $3, $4, $5, $6, $7)
+     RETURNING id`,
+    [p.cot, p.flow, p.dilution ?? 0.35, p.cit ?? 600, p.cip ?? 1.8,
+     p.severity_type ?? 1, p.flux_profile ?? 3]
   )
   return res.rows[0].id
 }
 
 export async function submitFreshRun(
-  coil_id: number, feed_id: number, cot: number, flow: number, project_name: string
+  coil_id: number, feed_id: number, project_name: string, p: RunParams
 ): Promise<number> {
   const res = await pool.query<{ id: number }>(
-    "INSERT INTO cs_py_int.simulation_tasks (status, task_type, coil_id, feed_id, cot_input, flow_input, project_name) VALUES ('Pending', 'fresh', $1, $2, $3, $4, $5) RETURNING id",
-    [coil_id, feed_id, cot, flow, project_name]
+    `INSERT INTO cs_py_int.simulation_tasks
+       (status, task_type, coil_id, feed_id, cot_input, flow_input, project_name,
+        dilution_ratio, cit_input, cip_input, severity_type, flux_profile)
+     VALUES ('Pending', 'fresh', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     RETURNING id`,
+    [coil_id, feed_id, p.cot, p.flow, project_name,
+     p.dilution ?? 0.35, p.cit ?? 600, p.cip ?? 1.8,
+     p.severity_type ?? 1, p.flux_profile ?? 3]
   )
   return res.rows[0].id
 }

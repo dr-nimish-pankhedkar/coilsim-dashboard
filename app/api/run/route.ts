@@ -1,29 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { submitHourlyRun, submitFreshRun } from '@/lib/queries'
+import { submitHourlyRun, submitFreshRun, RunParams } from '@/lib/queries'
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const { type } = body
 
+    const runParams: RunParams = {
+      cot:           Number(body.cot),
+      flow:          Number(body.flow),
+      dilution:      body.dilution      != null ? Number(body.dilution)      : undefined,
+      cit:           body.cit           != null ? Number(body.cit)           : undefined,
+      cip:           body.cip           != null ? Number(body.cip)           : undefined,
+      severity_type: body.severity_type != null ? Number(body.severity_type) : undefined,
+      flux_profile:  body.flux_profile  != null ? Number(body.flux_profile)  : undefined,
+    }
+
+    if (!runParams.cot || !runParams.flow) {
+      return NextResponse.json({ error: 'Missing cot or flow' }, { status: 400 })
+    }
+
     if (type === 'hourly') {
-      const { cot, flow } = body
-      if (cot == null || flow == null) return NextResponse.json({ error: 'Missing cot or flow' }, { status: 400 })
-      const id = await submitHourlyRun(Number(cot), Number(flow))
+      const id = await submitHourlyRun(runParams)
       return NextResponse.json({ id })
     }
 
     if (type === 'fresh') {
-      const { coil_id, feed_id, cot, flow, project_name } = body
-      if (!coil_id || !feed_id || cot == null || flow == null || !project_name) {
-        return NextResponse.json({ error: 'Missing required fields for fresh run' }, { status: 400 })
+      const { coil_id, feed_id, project_name } = body
+      if (!coil_id || !feed_id || !project_name) {
+        return NextResponse.json({ error: 'Missing coil_id, feed_id, or project_name' }, { status: 400 })
       }
-      const id = await submitFreshRun(Number(coil_id), Number(feed_id), Number(cot), Number(flow), project_name)
+      const id = await submitFreshRun(Number(coil_id), Number(feed_id), project_name, runParams)
       return NextResponse.json({ id })
     }
 
     return NextResponse.json({ error: 'Invalid type' }, { status: 400 })
-  } catch {
-    return NextResponse.json({ error: 'Database error' }, { status: 500 })
+  } catch (err: any) {
+    // If the extra columns don't exist yet, give a clear message
+    const msg = err?.message ?? 'Database error'
+    const isColumn = msg.includes('column') && msg.includes('does not exist')
+    return NextResponse.json(
+      { error: isColumn ? 'DB schema needs migration — run the ALTER TABLE script' : msg },
+      { status: 500 }
+    )
   }
 }

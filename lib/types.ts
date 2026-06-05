@@ -10,6 +10,11 @@ export interface SimulationTask {
   coil_id: number | null
   feed_id: number | null
   project_name: string | null
+  dilution_ratio: number | null
+  cit_input: number | null
+  cip_input: number | null
+  severity_type: number | null
+  flux_profile: number | null
 }
 
 export interface ProfileDetail {
