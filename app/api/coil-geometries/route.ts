@@ -16,11 +16,11 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { name, ncoil, legs, adiabatic_flag } = body
     if (!name || !ncoil || !legs?.length) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+      return NextResponse.json({ error: 'Missing required fields: name, ncoil, legs' }, { status: 400 })
     }
-    const id = await insertCoilGeometry(name, ncoil, legs, adiabatic_flag ?? false)
+    const id = await insertCoilGeometry(name, Number(ncoil), legs, adiabatic_flag ?? false)
     return NextResponse.json({ id })
-  } catch {
-    return NextResponse.json({ error: 'Database error' }, { status: 500 })
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message ?? 'Database error (coil geometry)' }, { status: 500 })
   }
 }

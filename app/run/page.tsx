@@ -266,9 +266,11 @@ function DesignCaseWizard() {
             body: JSON.stringify({ name: feedName || `Feed_${projName}`, components: normComps, product_ids: parsedProductIds }),
           }),
         ])
-        if (!coilRes.ok || !feedRes.ok) { setSubmitState('err'); setSubmitMsg('Failed to save geometry or feedstock.'); return }
-        coil_id = (await coilRes.json()).id
-        feed_id = (await feedRes.json()).id
+        const [coilJson, feedJson] = await Promise.all([coilRes.json(), feedRes.json()])
+        if (!coilRes.ok) { setSubmitState('err'); setSubmitMsg(`Coil geometry error: ${coilJson.error ?? 'unknown'}`); return }
+        if (!feedRes.ok) { setSubmitState('err'); setSubmitMsg(`Feedstock error: ${feedJson.error ?? 'unknown'}`); return }
+        coil_id = coilJson.id
+        feed_id = feedJson.id
       }
 
       const runRes = await fetch('/api/run', {

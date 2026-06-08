@@ -16,11 +16,11 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { name, components, product_ids } = body
     if (!name || !components?.length) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+      return NextResponse.json({ error: 'Missing required fields: name, components' }, { status: 400 })
     }
     const id = await insertFeedstockDefinition(name, components, product_ids ?? [])
     return NextResponse.json({ id })
-  } catch {
-    return NextResponse.json({ error: 'Database error' }, { status: 500 })
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message ?? 'Database error (feedstock)' }, { status: 500 })
   }
 }
