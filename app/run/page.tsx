@@ -138,109 +138,6 @@ function Nav({ step, total, onBack, onNext, nextLabel = 'Continue →', disabled
   )
 }
 
-// ── Hourly Run (simple) ───────────────────────────────────────────────────────
-function HourlyRunTab() {
-  const [cot,     setCot]     = useState('')
-  const [flow,    setFlow]    = useState('')
-  const [dilut,   setDilut]   = useState('0.35')
-  const [cit,     setCit]     = useState('600')
-  const [cip,     setCip]     = useState('1.8')
-  const [sevType, setSevType] = useState(1)
-  const [profile, setProfile] = useState(3)
-  const [state,   setState]   = useState<'idle'|'loading'|'ok'|'err'>('idle')
-  const [msg,     setMsg]     = useState('')
-
-  const sev = SEVERITY_OPTIONS.find(o => o.value === sevType)!
-
-  async function submit() {
-    if (!cot || !flow) { setMsg('Target value and Flow rate are required.'); setState('err'); return }
-    setState('loading')
-    const res = await fetch('/api/run', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'hourly', cot: Number(cot), flow: Number(flow),
-        dilution: Number(dilut), cit: Number(cit), cip: Number(cip),
-        severity_type: sevType, flux_profile: profile,
-      }),
-    })
-    const json = await res.json()
-    if (!res.ok) { setState('err'); setMsg(json.error ?? 'Failed'); return }
-    setState('ok'); setMsg(`Task #${json.id} queued successfully.`); setCot(''); setFlow('')
-  }
-
-  return (
-    <div className="max-w-xl space-y-6">
-      <div className="rounded-xl bg-sky-50 border border-sky-100 px-4 py-3 text-sm text-sky-700">
-        Patches only <code className="font-mono text-xs bg-sky-100 px-1 rounded">exp.txt</code> — geometry and feedstock are read from the last Design Case on disk.
-      </div>
-
-      {/* Severity */}
-      <div className="card space-y-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Severity Target</p>
-          <p className="text-xs text-gray-400 mt-0.5">What CoilSim iterates to match</p>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Severity type</label>
-            <select value={sevType} onChange={e => setSevType(Number(e.target.value))} className={inp}>
-              {SEVERITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">{sev.desc} ({sev.unit})</label>
-            <input type="number" value={cot} onChange={e => { setCot(e.target.value); setState('idle') }}
-              placeholder={sev.placeholder} className={inp} />
-          </div>
-        </div>
-      </div>
-
-      {/* Flow */}
-      <div className="card space-y-4">
-        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Flow & Steam</p>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">HC Flow (kg/h per tube)</label>
-            <input type="number" value={flow} onChange={e => { setFlow(e.target.value); setState('idle') }}
-              placeholder="1298" className={inp} />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Steam dilution (kg/kg HC)</label>
-            <input type="number" step="0.01" value={dilut} onChange={e => setDilut(e.target.value)} className={inp} />
-          </div>
-        </div>
-      </div>
-
-      {/* Inlet */}
-      <div className="card space-y-4">
-        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Inlet Conditions</p>
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">CIT (°C)</label>
-            <input type="number" value={cit} onChange={e => setCit(e.target.value)} placeholder="600" className={inp} />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">CIP (atm)</label>
-            <input type="number" step="0.1" value={cip} onChange={e => setCip(e.target.value)} placeholder="1.8" className={inp} />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Heat flux profile</label>
-            <select value={profile} onChange={e => setProfile(Number(e.target.value))} className={inp}>
-              {FLUX_PROFILES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <button onClick={submit} disabled={state === 'loading'} className="btn-primary w-full">
-        {state === 'loading' ? 'Submitting…' : 'Queue Hourly Run →'}
-      </button>
-      {state === 'ok'  && <p className="text-sm text-emerald-600 font-medium text-center">{msg}</p>}
-      {state === 'err' && <p className="text-sm text-red-500 text-center">{msg}</p>}
-    </div>
-  )
-}
-
 // ══════════════════════════════════════════════════════════════════════════════
 // Design Case Wizard
 // ══════════════════════════════════════════════════════════════════════════════
@@ -942,28 +839,17 @@ function DesignCaseWizard() {
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
-const TABS = ['Hourly Run', 'Design Case Simulation'] as const
-type Tab = typeof TABS[number]
-
-export default function RunPage() {
-  const [tab, setTab] = useState<Tab>('Hourly Run')
+export default function DesignCasePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-gray-900">Run Simulation</h1>
-        <p className="text-sm text-gray-400 mt-0.5">Submit a task to the CoilSim worker queue</p>
+        <h1 className="text-xl font-semibold text-gray-900">Design Case</h1>
+        <p className="text-sm text-gray-400 mt-0.5">
+          Define furnace geometry, feedstock and baseline operating conditions
+        </p>
       </div>
       <div className="card">
-        <div className="flex gap-6 border-b border-gray-100 mb-6">
-          {TABS.map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`pb-3 text-sm ${tab === t ? 'tab-active' : 'tab-inactive'}`}>
-              {t === 'Hourly Run' ? '⏱ Hourly Run' : '🏗 Design Case Simulation'}
-            </button>
-          ))}
-        </div>
-        {tab === 'Hourly Run'             && <HourlyRunTab />}
-        {tab === 'Design Case Simulation' && <DesignCaseWizard />}
+        <DesignCaseWizard />
       </div>
     </div>
   )

@@ -9,6 +9,149 @@ import type { OperatingCoilRow } from '@/lib/types'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
+// ── Shared styles ─────────────────────────────────────────────────────────────
+const inp = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white'
+
+// ── Severity options (mirrors run page) ───────────────────────────────────────
+const SEVERITY_OPTIONS = [
+  { value: 1,  label: 'COT',               unit: '°C',   placeholder: '837', desc: 'Coil Outlet Temperature' },
+  { value: 2,  label: 'P/E ratio',         unit: '—',    placeholder: '0.42', desc: 'Propylene / Ethylene' },
+  { value: 3,  label: 'M/P ratio',         unit: '—',    placeholder: '0.35', desc: 'Methane / Propylene' },
+  { value: 4,  label: 'Ethane conversion', unit: 'frac', placeholder: '0.65', desc: 'Mass conversion fraction' },
+  { value: 5,  label: 'Propane conversion',unit: 'frac', placeholder: '0.92', desc: 'Mass conversion fraction' },
+  { value: 6,  label: 'n-Butane conv.',    unit: 'frac', placeholder: '0.95', desc: 'Mass conversion fraction' },
+  { value: 10, label: 'Ethylene prod.',    unit: 'kg/h', placeholder: '500',  desc: 'Ethylene production rate' },
+]
+
+const FLUX_PROFILES = [
+  { value: 3, label: 'Uniform' },
+  { value: 1, label: 'Linear' },
+  { value: 2, label: 'Sinusoidal' },
+  { value: 5, label: 'Long flame' },
+]
+
+// ── Hourly Run panel ──────────────────────────────────────────────────────────
+function HourlyRunPanel() {
+  const [open,    setOpen]    = useState(false)
+  const [cot,     setCot]     = useState('')
+  const [flow,    setFlow]    = useState('')
+  const [dilut,   setDilut]   = useState('0.35')
+  const [cit,     setCit]     = useState('600')
+  const [cip,     setCip]     = useState('1.8')
+  const [sevType, setSevType] = useState(1)
+  const [profile, setProfile] = useState(3)
+  const [state,   setState]   = useState<'idle'|'loading'|'ok'|'err'>('idle')
+  const [msg,     setMsg]     = useState('')
+
+  const sev = SEVERITY_OPTIONS.find(o => o.value === sevType)!
+
+  async function submit() {
+    if (!cot || !flow) { setMsg('Target value and Flow rate are required.'); setState('err'); return }
+    setState('loading')
+    const res = await fetch('/api/run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'hourly', cot: Number(cot), flow: Number(flow),
+        dilution: Number(dilut), cit: Number(cit), cip: Number(cip),
+        severity_type: sevType, flux_profile: profile,
+      }),
+    })
+    const json = await res.json()
+    if (!res.ok) { setState('err'); setMsg(json.error ?? 'Failed'); return }
+    setState('ok'); setMsg(`Task #${json.id} queued.`); setCot(''); setFlow('')
+    setTimeout(() => { setState('idle'); setMsg('') }, 4000)
+  }
+
+  return (
+    <div className="card">
+      {/* Header — always visible */}
+      <button onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between group">
+        <div className="flex items-center gap-3">
+          <span className="text-base">⏱</span>
+          <div className="text-left">
+            <p className="text-sm font-semibold text-gray-900">Submit Hourly Run</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Patch exp.txt with new operating conditions — geometry from active Design Case
+            </p>
+          </div>
+        </div>
+        <svg className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Expandable form */}
+      {open && (
+        <div className="mt-5 pt-5 border-t border-gray-100 space-y-5">
+          <div className="rounded-lg bg-sky-50 border border-sky-100 px-4 py-2.5 text-xs text-sky-700">
+            Reads geometry and feedstock from the last Design Case on disk. Only <code className="font-mono bg-sky-100 px-1 rounded">exp.txt</code> is patched.
+          </div>
+
+          <div className="grid grid-cols-2 gap-5">
+            {/* Left column */}
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Severity Target</p>
+                <div className="space-y-2">
+                  <select value={sevType} onChange={e => setSevType(Number(e.target.value))} className={inp}>
+                    {SEVERITY_OPTIONS.map(o => (
+                      <option key={o.value} value={o.value}>{o.label} ({o.unit})</option>
+                    ))}
+                  </select>
+                  <input type="number" value={cot}
+                    onChange={e => { setCot(e.target.value); setState('idle') }}
+                    placeholder={`${sev.desc} — ${sev.placeholder} ${sev.unit}`}
+                    className={inp} />
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Flow & Steam</p>
+                <div className="space-y-2">
+                  <input type="number" value={flow}
+                    onChange={e => { setFlow(e.target.value); setState('idle') }}
+                    placeholder="HC flow — 1298 kg/h per tube" className={inp} />
+                  <input type="number" step="0.01" value={dilut}
+                    onChange={e => setDilut(e.target.value)}
+                    placeholder="Steam dilution — 0.35 kg/kg" className={inp} />
+                </div>
+              </div>
+            </div>
+
+            {/* Right column */}
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Inlet Conditions</p>
+                <div className="space-y-2">
+                  <input type="number" value={cit} onChange={e => setCit(e.target.value)}
+                    placeholder="CIT — 600 °C" className={inp} />
+                  <input type="number" step="0.1" value={cip} onChange={e => setCip(e.target.value)}
+                    placeholder="CIP — 1.8 atm" className={inp} />
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Heat Flux Profile</p>
+                <select value={profile} onChange={e => setProfile(Number(e.target.value))} className={inp}>
+                  {FLUX_PROFILES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 pt-2">
+            <button onClick={submit} disabled={state === 'loading'} className="btn-primary">
+              {state === 'loading' ? 'Submitting…' : 'Queue Hourly Run →'}
+            </button>
+            {state === 'ok'  && <p className="text-sm text-emerald-600 font-medium">✓ {msg}</p>}
+            {state === 'err' && <p className="text-sm text-red-500">{msg}</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function deltaCls(delta: number | null) {
@@ -185,10 +328,20 @@ export default function OperatingCasePage() {
         <div>
           <h1 className="text-xl font-semibold text-gray-900">Operating Case</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            40-coil coke monitoring — auto-refreshes every 30 s
+            Hourly run submission and 40-coil coke monitoring
           </p>
         </div>
         <Legend />
+      </div>
+
+      {/* Hourly Run */}
+      <HourlyRunPanel />
+
+      {/* Divider */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-px bg-gray-100" />
+        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Coil Monitoring</p>
+        <div className="flex-1 h-px bg-gray-100" />
       </div>
 
       {/* Summary pills */}
