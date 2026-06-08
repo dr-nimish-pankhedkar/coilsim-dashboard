@@ -26,12 +26,14 @@ function StatusBadge({ status }: { status: string }) {
 
 function TypeBadge({ type }: { type: string | null }) {
   if (!type) return <span className="text-gray-300">—</span>
-  const cls = type === 'fresh'
-    ? 'bg-purple-50 text-purple-700'
-    : 'bg-sky-50 text-sky-700'
+  const cls =
+    type === 'design_case' || type === 'fresh' ? 'bg-purple-50 text-purple-700' :
+    type === 'hourly'                           ? 'bg-sky-50   text-sky-700'     :
+                                                  'bg-gray-100 text-gray-600'
+  const label = (type === 'design_case' || type === 'fresh') ? 'design case' : type
   return (
     <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${cls}`}>
-      {type}
+      {label}
     </span>
   )
 }

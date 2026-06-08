@@ -2,6 +2,7 @@ import { pool } from './db'
 import type {
   SimulationTask, ProfileDetail, YieldRecord, WorkerHeartbeat,
   CoilGeometry, FeedstockDefinition, LegDefinition, ComponentDefinition,
+  DesignCase, CoilCokeProfile, OperatingCoilRow,
 } from './types'
 
 // ── Dashboard ───────────────────────────────────────────────────────────────
@@ -141,18 +142,93 @@ export async function submitHourlyRun(p: RunParams): Promise<number> {
   return res.rows[0].id
 }
 
-export async function submitFreshRun(
+export async function submitDesignCaseRun(
   coil_id: number, feed_id: number, project_name: string, p: RunParams
 ): Promise<number> {
   const res = await pool.query<{ id: number }>(
     `INSERT INTO cs_py_int.simulation_tasks
        (status, task_type, coil_id, feed_id, cot_input, flow_input, project_name,
         dilution_ratio, cit_input, cip_input, severity_type, flux_profile)
-     VALUES ('Pending', 'fresh', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     VALUES ('Pending', 'design_case', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      RETURNING id`,
     [coil_id, feed_id, p.cot, p.flow, project_name,
      p.dilution ?? 0.35, p.cit ?? 600, p.cip ?? 1.8,
      p.severity_type ?? 1, p.flux_profile ?? 3]
   )
   return res.rows[0].id
+}
+
+// ── Design Cases ─────────────────────────────────────────────────────────────
+
+export async function getAllDesignCases(): Promise<DesignCase[]> {
+  const res = await pool.query<DesignCase>(
+    'SELECT id, name, coil_id, feed_id, project_name, created_at FROM cs_py_int.design_cases ORDER BY id DESC'
+  )
+  return res.rows
+}
+
+export async function insertDesignCase(
+  name: string, coil_id: number, feed_id: number, project_name: string
+): Promise<number> {
+  const res = await pool.query<{ id: number }>(
+    `INSERT INTO cs_py_int.design_cases (name, coil_id, feed_id, project_name)
+     VALUES ($1, $2, $3, $4) RETURNING id`,
+    [name, coil_id, feed_id, project_name]
+  )
+  return res.rows[0].id
+}
+
+// ── Operating Case ────────────────────────────────────────────────────────────
+
+export async function getOperatingCoilGrid(): Promise<OperatingCoilRow[]> {
+  // Join latest hourly task per coil with latest coke profile
+  const res = await pool.query<OperatingCoilRow>(`
+    WITH latest_tasks AS (
+      SELECT DISTINCT ON (coil_number)
+        id AS task_id, status AS task_status, coil_number,
+        cot_input AS dcs_cot, flow_input, completed_at, design_case_id,
+        convergence AS sim_cot
+      FROM cs_py_int.simulation_tasks
+      WHERE task_type = 'hourly' AND coil_number IS NOT NULL
+      ORDER BY coil_number, id DESC
+    ),
+    latest_coke AS (
+      SELECT DISTINCT ON (coil_number)
+        coil_number, design_case_id, coke_thickness, updated_at AS coke_updated_at
+      FROM cs_py_int.coil_coke_profiles
+      ORDER BY coil_number, updated_at DESC
+    )
+    SELECT
+      COALESCE(t.coil_number, c.coil_number)     AS coil_number,
+      COALESCE(t.design_case_id, c.design_case_id) AS design_case_id,
+      dc.name                                     AS design_case_name,
+      c.coke_thickness,
+      c.coke_updated_at,
+      t.task_id,
+      t.task_status,
+      t.sim_cot,
+      t.dcs_cot,
+      t.flow_input,
+      t.completed_at
+    FROM latest_tasks t
+    FULL OUTER JOIN latest_coke c USING (coil_number)
+    LEFT JOIN cs_py_int.design_cases dc
+      ON dc.id = COALESCE(t.design_case_id, c.design_case_id)
+    ORDER BY coil_number
+  `)
+  return res.rows
+}
+
+export async function getCokeTrend(
+  coil_number: number, limit = 48
+): Promise<{ updated_at: string; coke_thickness: number }[]> {
+  const res = await pool.query(
+    `SELECT updated_at, coke_thickness
+     FROM cs_py_int.coil_coke_profiles
+     WHERE coil_number = $1
+     ORDER BY updated_at DESC
+     LIMIT $2`,
+    [coil_number, limit]
+  )
+  return res.rows
 }

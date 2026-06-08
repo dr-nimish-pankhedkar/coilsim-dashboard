@@ -1,7 +1,7 @@
 export interface SimulationTask {
   id: number
   status: string
-  task_type: 'hourly' | 'fresh' | null
+  task_type: 'hourly' | 'design_case' | 'fresh' | null  // 'fresh' kept for backward compat
   cot_input: number | null
   flow_input: number | null
   convergence: number | null
@@ -15,6 +15,40 @@ export interface SimulationTask {
   cip_input: number | null
   severity_type: number | null
   flux_profile: number | null
+  design_case_id: number | null
+  coil_number: number | null
+}
+
+export interface DesignCase {
+  id: number
+  name: string
+  coil_id: number
+  feed_id: number
+  project_name: string
+  created_at: string
+}
+
+export interface CoilCokeProfile {
+  id: number
+  coil_number: number
+  design_case_id: number
+  coke_thickness: number
+  updated_at: string
+}
+
+export interface OperatingCoilRow {
+  coil_number: number
+  design_case_id: number | null
+  design_case_name: string | null
+  coke_thickness: number | null
+  coke_updated_at: string | null
+  // latest hourly task for this coil
+  task_id: number | null
+  task_status: string | null
+  sim_cot: number | null      // cot from last completed run (profile max or stored)
+  dcs_cot: number | null      // cot_input from task
+  flow_input: number | null
+  completed_at: string | null
 }
 
 export interface ProfileDetail {

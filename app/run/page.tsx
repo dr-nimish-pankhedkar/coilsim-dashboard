@@ -289,8 +289,26 @@ function FreshRunTab() {
   const [proj,    setProj]    = useState('')
 
   // ── Submit ────────────────────────────────────────────────────────────────
-  const [state, setState] = useState<'idle'|'loading'|'ok'|'err'>('idle')
-  const [msg,   setMsg]   = useState('')
+  const [state,    setState]    = useState<'idle'|'loading'|'ok'|'err'>('idle')
+  const [msg,      setMsg]      = useState('')
+  // After a successful run, offer "Save as Design Case"
+  const [lastTask, setLastTask] = useState<{id:number; coil_id:number; feed_id:number; project_name:string} | null>(null)
+  const [dcName,   setDcName]   = useState('')
+  const [dcState,  setDcState]  = useState<'idle'|'loading'|'ok'|'err'>('idle')
+  const [dcMsg,    setDcMsg]    = useState('')
+
+  async function saveDesignCase() {
+    if (!lastTask || !dcName.trim()) return
+    setDcState('loading')
+    const res = await fetch('/api/design-cases', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: dcName.trim(), coil_id: lastTask.coil_id,
+        feed_id: lastTask.feed_id, project_name: lastTask.project_name }),
+    })
+    const json = await res.json()
+    if (!res.ok) { setDcState('err'); setDcMsg(json.error ?? 'Failed'); return }
+    setDcState('ok'); setDcMsg(`Design case "${dcName}" saved (id #${json.id}).`)
+  }
 
   async function submit() {
     setState('loading'); setMsg('')
@@ -342,7 +360,7 @@ function FreshRunTab() {
       const runRes = await fetch('/api/run', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          type: 'fresh', coil_id, feed_id,
+          type: 'design_case', coil_id, feed_id,
           cot: Number(cot), flow: Number(flow),
           dilution: Number(dilut), cit: Number(cit), cip: Number(cip),
           severity_type: sevType, flux_profile: profile,
@@ -351,7 +369,10 @@ function FreshRunTab() {
       })
       const json = await runRes.json()
       if (!runRes.ok) { setState('err'); setMsg(json.error ?? 'Failed'); return }
-      setState('ok'); setMsg(`Fresh run task #${json.id} queued — project: ${proj}`)
+      setState('ok')
+      setMsg(`Design case simulation task #${json.id} queued — project: ${proj}`)
+      setLastTask({ id: json.id, coil_id, feed_id, project_name: proj.trim() })
+      setDcName(proj.trim()); setDcState('idle'); setDcMsg('')
     } catch {
       setState('err'); setMsg('Network error')
     }
@@ -643,10 +664,44 @@ function FreshRunTab() {
       </Section>
 
       <button onClick={submit} disabled={state === 'loading'} className="btn-primary">
-        {state === 'loading' ? 'Submitting…' : 'Submit Fresh Run →'}
+        {state === 'loading' ? 'Submitting…' : 'Submit Design Case Simulation →'}
       </button>
-      {state === 'ok'  && <p className="text-sm text-emerald-600 font-medium">{msg}</p>}
       {state === 'err' && <p className="text-sm text-red-500">{msg}</p>}
+
+      {/* ── Save as Design Case banner ──────────────────────────────────── */}
+      {state === 'ok' && lastTask && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
+          <div className="flex items-start gap-2">
+            <span className="text-emerald-600 mt-0.5">✓</span>
+            <div>
+              <p className="text-sm font-medium text-emerald-800">{msg}</p>
+              <p className="text-xs text-emerald-600 mt-0.5">
+                Once the worker completes this run you can save it as a named Design Case
+                — the Operating Case page will use it as the baseline for coke tuning.
+              </p>
+            </div>
+          </div>
+          {dcState !== 'ok' ? (
+            <div className="flex gap-2 items-center">
+              <input
+                value={dcName} onChange={e => setDcName(e.target.value)}
+                placeholder="Design case name (e.g. YSB_Ethane_Base)"
+                className={inp + ' flex-1'}
+              />
+              <button
+                onClick={saveDesignCase}
+                disabled={dcState === 'loading' || !dcName.trim()}
+                className="btn-primary whitespace-nowrap"
+              >
+                {dcState === 'loading' ? 'Saving…' : 'Save as Design Case'}
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm text-emerald-700 font-medium">✓ {dcMsg}</p>
+          )}
+          {dcState === 'err' && <p className="text-xs text-red-500">{dcMsg}</p>}
+        </div>
+      )}
     </div>
   )
 }
@@ -654,7 +709,7 @@ function FreshRunTab() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Page
 // ═══════════════════════════════════════════════════════════════════════════════
-const TABS = ['Hourly Run', 'Fresh Run'] as const
+const TABS = ['Hourly Run', 'Design Case Simulation'] as const
 type Tab = typeof TABS[number]
 
 export default function RunPage() {
@@ -672,12 +727,12 @@ export default function RunPage() {
               className={`pb-3 text-sm ${tab === t ? 'tab-active' : 'tab-inactive'}`}>
               {t === 'Hourly Run'
                 ? '⏱ Hourly Run — patch exp.txt only'
-                : '🔬 Fresh Run — full geometry + feedstock'}
+                : '🏗 Design Case Simulation — full geometry + feedstock'}
             </button>
           ))}
         </div>
-        {tab === 'Hourly Run' && <HourlyRunTab />}
-        {tab === 'Fresh Run'  && <FreshRunTab />}
+        {tab === 'Hourly Run'              && <HourlyRunTab />}
+        {tab === 'Design Case Simulation'  && <FreshRunTab />}
       </div>
     </div>
   )
