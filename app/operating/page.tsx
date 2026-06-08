@@ -40,12 +40,14 @@ function fmtCoke(v: number | null) {
 // ── Coke trend mini-chart ─────────────────────────────────────────────────────
 
 function CokeTrend({ coil }: { coil: number }) {
-  const { data, isLoading } = useSWR<{ updated_at: string; coke_thickness: number }[]>(
+  const { data: rawTrend, isLoading } = useSWR(
     `/api/operating-case/coke-trend?coil=${coil}`, fetcher, { refreshInterval: 60_000 }
   )
+  const data: { updated_at: string; coke_thickness: number }[] =
+    Array.isArray(rawTrend) ? rawTrend : []
 
   if (isLoading) return <p className="text-xs text-gray-400 py-4 text-center">Loading…</p>
-  if (!data?.length) return <p className="text-xs text-gray-400 py-4 text-center">No coke history yet.</p>
+  if (!data.length) return <p className="text-xs text-gray-400 py-4 text-center">No coke history yet.</p>
 
   const chartData = [...data].reverse().map(r => ({
     t: fmtTime(r.updated_at),
@@ -142,31 +144,35 @@ function Legend() {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function OperatingCasePage() {
-  const { data, isLoading, error } = useSWR<OperatingCoilRow[]>(
+  const { data: rawData, isLoading, error } = useSWR(
     '/api/operating-case', fetcher, { refreshInterval: 30_000 }
   )
   const [selected, setSelected] = useState<number | null>(null)
 
+  // Guard: API returns { error } when tables don't exist yet
+  const rows: OperatingCoilRow[] = Array.isArray(rawData) ? rawData : []
+  const apiError: string | null = rawData?.error ?? null
+
   // Build full 1-40 grid — fill gaps with empty rows
-  const rowMap = new Map((data ?? []).map(r => [r.coil_number, r]))
+  const rowMap = new Map(rows.map(r => [r.coil_number, r]))
   const grid: (OperatingCoilRow | null)[] = Array.from({ length: 40 }, (_, i) =>
     rowMap.get(i + 1) ?? null
   )
 
   const selRow = selected != null ? rowMap.get(selected) : null
 
-  const hasData = (data?.length ?? 0) > 0
+  const hasData = rows.length > 0
   const stats = hasData ? {
-    running:  (data ?? []).filter(r => r.task_status === 'Processing').length,
-    green:    (data ?? []).filter(r => {
+    running: rows.filter(r => r.task_status === 'Processing').length,
+    green:   rows.filter(r => {
       const d = r.sim_cot != null && r.dcs_cot != null ? Math.abs(r.sim_cot - r.dcs_cot) : null
       return d != null && d <= 1
     }).length,
-    amber:    (data ?? []).filter(r => {
+    amber:   rows.filter(r => {
       const d = r.sim_cot != null && r.dcs_cot != null ? Math.abs(r.sim_cot - r.dcs_cot) : null
       return d != null && d > 1 && d <= 3
     }).length,
-    red:      (data ?? []).filter(r => {
+    red:     rows.filter(r => {
       const d = r.sim_cot != null && r.dcs_cot != null ? Math.abs(r.sim_cot - r.dcs_cot) : null
       return d != null && d > 3
     }).length,
@@ -210,10 +216,21 @@ export default function OperatingCasePage() {
           {isLoading && (
             <p className="text-sm text-gray-400 py-12 text-center">Loading coil data…</p>
           )}
-          {error && (
-            <p className="text-sm text-red-400 py-12 text-center">
-              Failed to load — check DB connection.
-            </p>
+          {(error || apiError) && (
+            <div className="py-8 text-center space-y-1">
+              <p className="text-sm text-red-400">
+                {apiError
+                  ? apiError.includes('does not exist')
+                    ? 'DB tables not created yet — run the migration SQL first.'
+                    : apiError
+                  : 'Failed to load — check DB connection.'}
+              </p>
+              {apiError?.includes('does not exist') && (
+                <p className="text-xs text-gray-400">
+                  Need: <code>CREATE TABLE cs_py_int.design_cases</code> and <code>coil_coke_profiles</code>
+                </p>
+              )}
+            </div>
           )}
           {!isLoading && (
             <div className="grid grid-cols-8 gap-2">
