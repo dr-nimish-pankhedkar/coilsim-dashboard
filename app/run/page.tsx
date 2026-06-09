@@ -266,6 +266,8 @@ function DesignCaseWizard() {
   const [submitState, setSubmitState] = useState<'idle'|'loading'|'ok'|'err'>('idle')
   const [submitMsg,   setSubmitMsg]   = useState('')
   const [lastTaskId,  setLastTaskId]  = useState<number|null>(null)
+  const [lastCoilId,  setLastCoilId]  = useState<number|null>(null)
+  const [lastFeedId,  setLastFeedId]  = useState<number|null>(null)
   const [dcSaveState, setDcSaveState] = useState<'idle'|'loading'|'ok'|'err'>('idle')
   const [dcSaveMsg,   setDcSaveMsg]   = useState('')
 
@@ -315,6 +317,8 @@ function DesignCaseWizard() {
         if (!feedRes.ok) { setSubmitState('err'); setSubmitMsg(`Feedstock error: ${feedJson.error ?? 'unknown'}`); return }
         coil_id = coilJson.id
         feed_id = feedJson.id
+        setLastCoilId(coil_id)
+        setLastFeedId(feed_id)
       }
 
       const runRes = await fetch('/api/run', {
@@ -351,9 +355,9 @@ function DesignCaseWizard() {
   async function saveDesignCase() {
     if (!lastTaskId || !dcName.trim()) return
     setDcSaveState('loading')
-    // Resolve coil/feed IDs
-    const coil_id = useMode === 'saved' ? Number(savedCoilId) : 0
-    const feed_id = useMode === 'saved' ? Number(savedFeedId) : 0
+    // Resolve coil/feed IDs — use newly created IDs if user entered a new geometry
+    const coil_id = useMode === 'saved' ? Number(savedCoilId) : (lastCoilId ?? 0)
+    const feed_id = useMode === 'saved' ? Number(savedFeedId) : (lastFeedId ?? 0)
     const res = await fetch('/api/design-cases', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: dcName, coil_id, feed_id, project_name: projName }),
