@@ -27,6 +27,10 @@ export async function GET() {
     const tables = tblRes.rows.map((r: any) => r.table_name) as string[]
 
     const required_cols = [
+      // original cols used by hourly run (should already exist):
+      'cot_input', 'flow_input', 'status', 'task_type',
+      // cols added for design_case run:
+      'coil_id', 'feed_id', 'project_name',
       'dilution_ratio', 'cit_input', 'cip_input',
       'severity_type', 'flux_profile',
       'design_case_id', 'coil_number',
