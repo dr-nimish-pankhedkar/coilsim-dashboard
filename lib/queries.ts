@@ -122,11 +122,22 @@ export async function insertFeedstockDefinition(
 export interface RunParams {
   cot: number
   flow: number
-  dilution?: number       // kg steam / kg HC  (exp.txt row 8)
-  cit?: number            // Coil Inlet Temperature °C (exp.txt row 9)
-  cip?: number            // Coil Inlet Pressure atm   (exp.txt row 10)
-  severity_type?: number  // shooting flag 1-12        (exp.txt row 1)
-  flux_profile?: number   // heat flux profile 1-5     (exp.txt row 6)
+  dilution?: number           // kg steam / kg HC          (exp.txt row 8)
+  cit?: number                // Coil Inlet Temperature °C  (exp.txt row 9)
+  cip?: number                // Coil Inlet Pressure atm    (exp.txt row 10)
+  cop?: number                // Coil Outlet Pressure atm   (exp.txt pressure severity)
+  severity_type?: number      // shooting flag 1-13         (exp.txt row 1)
+  sev_location?: string       // 'reactor_end'|'adiabatic_pct'|'tle_end'
+  sev_location_pct?: number | null
+  pressure_sev_type?: string  // 'cop'|'eth_eth'
+  pressure_location?: string
+  pressure_location_pct?: number | null
+  heat_flux_input_type?: string  // 'net'|'incident'
+  flux_profile?: number       // heat flux profile shape 1-5 (exp.txt row 6)
+  run_length_sim?: number     // 0 or 1
+  coke_model?: string         // 'Plehiers'|'Reyniers'
+  coke_conduction?: number    // kcal/(K·m·s), default 0.0045
+  coke_density?: number       // kg/m³, default 1600
 }
 
 export async function submitHourlyRun(p: RunParams): Promise<number> {
@@ -137,7 +148,7 @@ export async function submitHourlyRun(p: RunParams): Promise<number> {
      VALUES ('Pending', 'hourly', $1, $2, $3, $4, $5, $6, $7)
      RETURNING id`,
     [p.cot, p.flow, p.dilution ?? 0.35, p.cit ?? 600, p.cip ?? 1.8,
-     p.severity_type ?? 1, p.flux_profile ?? 3]
+     p.severity_type ?? 1, p.flux_profile ?? 1]
   )
   return res.rows[0].id
 }
@@ -148,12 +159,28 @@ export async function submitDesignCaseRun(
   const res = await pool.query<{ id: number }>(
     `INSERT INTO cs_py_int.simulation_tasks
        (status, task_type, coil_id, feed_id, cot_input, flow_input, project_name,
-        dilution_ratio, cit_input, cip_input, severity_type, flux_profile)
-     VALUES ('Pending', 'design_case', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        dilution_ratio, cit_input, cip_input, cop_input,
+        severity_type, sev_location, sev_location_pct,
+        pressure_sev_type, pressure_location, pressure_location_pct,
+        heat_flux_input_type, flux_profile,
+        run_length_sim, coke_model, coke_conduction, coke_density)
+     VALUES ('Pending', 'design_case',
+       $1,  $2,  $3,  $4,  $5,
+       $6,  $7,  $8,  $9,
+       $10, $11, $12,
+       $13, $14, $15,
+       $16, $17,
+       $18, $19, $20, $21)
      RETURNING id`,
-    [coil_id, feed_id, p.cot, p.flow, project_name,
-     p.dilution ?? 0.35, p.cit ?? 600, p.cip ?? 1.8,
-     p.severity_type ?? 1, p.flux_profile ?? 3]
+    [
+      coil_id, feed_id, p.cot, p.flow, project_name,
+      p.dilution ?? 0.35, p.cit ?? 668, p.cip ?? 2.59, p.cop ?? 2.053,
+      p.severity_type ?? 1, p.sev_location ?? 'adiabatic_pct', p.sev_location_pct ?? 60,
+      p.pressure_sev_type ?? 'cop', p.pressure_location ?? 'adiabatic_pct', p.pressure_location_pct ?? 100,
+      p.heat_flux_input_type ?? 'net', p.flux_profile ?? 1,
+      p.run_length_sim ?? 0, p.coke_model ?? 'Plehiers',
+      p.coke_conduction ?? 0.0045, p.coke_density ?? 1600,
+    ]
   )
   return res.rows[0].id
 }

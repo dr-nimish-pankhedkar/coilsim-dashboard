@@ -7,13 +7,24 @@ export async function POST(req: NextRequest) {
     const { type } = body
 
     const runParams: RunParams = {
-      cot:           Number(body.cot),
-      flow:          Number(body.flow),
-      dilution:      body.dilution      != null ? Number(body.dilution)      : undefined,
-      cit:           body.cit           != null ? Number(body.cit)           : undefined,
-      cip:           body.cip           != null ? Number(body.cip)           : undefined,
-      severity_type: body.severity_type != null ? Number(body.severity_type) : undefined,
-      flux_profile:  body.flux_profile  != null ? Number(body.flux_profile)  : undefined,
+      cot:                  Number(body.cot),
+      flow:                 Number(body.flow),
+      dilution:             body.dilution             != null ? Number(body.dilution)             : undefined,
+      cit:                  body.cit                  != null ? Number(body.cit)                  : undefined,
+      cip:                  body.cip                  != null ? Number(body.cip)                  : undefined,
+      cop:                  body.cop                  != null ? Number(body.cop)                  : undefined,
+      severity_type:        body.severity_type        != null ? Number(body.severity_type)        : undefined,
+      sev_location:         body.sev_location         ?? undefined,
+      sev_location_pct:     body.sev_location_pct     != null ? Number(body.sev_location_pct)     : undefined,
+      pressure_sev_type:    body.pressure_sev_type    ?? undefined,
+      pressure_location:    body.pressure_location    ?? undefined,
+      pressure_location_pct: body.pressure_location_pct != null ? Number(body.pressure_location_pct) : undefined,
+      heat_flux_input_type: body.heat_flux_input_type ?? undefined,
+      flux_profile:         body.flux_profile         != null ? Number(body.flux_profile)         : undefined,
+      run_length_sim:       body.run_length_sim        != null ? Number(body.run_length_sim)       : undefined,
+      coke_model:           body.coke_model            ?? undefined,
+      coke_conduction:      body.coke_conduction       != null ? Number(body.coke_conduction)      : undefined,
+      coke_density:         body.coke_density          != null ? Number(body.coke_density)         : undefined,
     }
 
     if (!runParams.cot || !runParams.flow) {

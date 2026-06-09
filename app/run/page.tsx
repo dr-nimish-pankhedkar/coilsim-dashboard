@@ -24,21 +24,36 @@ const COIL_TYPES = [
 ]
 
 const SEVERITY_OPTIONS = [
-  { value: 1,  label: 'COT',               unit: '°C',   placeholder: '837', desc: 'Coil Outlet Temperature' },
-  { value: 2,  label: 'P/E ratio',         unit: '—',    placeholder: '0.42', desc: 'Propylene / Ethylene' },
-  { value: 3,  label: 'M/P ratio',         unit: '—',    placeholder: '0.35', desc: 'Methane / Propylene' },
-  { value: 4,  label: 'Ethane conversion', unit: 'frac', placeholder: '0.65', desc: 'Mass conversion fraction' },
-  { value: 5,  label: 'Propane conversion',unit: 'frac', placeholder: '0.92', desc: 'Mass conversion fraction' },
-  { value: 6,  label: 'n-Butane conv.',    unit: 'frac', placeholder: '0.95', desc: 'Mass conversion fraction' },
-  { value: 10, label: 'Ethylene prod.',    unit: 'kg/h', placeholder: '500',  desc: 'Ethylene production rate' },
+  { value: 1,  label: 'COT',                unit: '°C',   placeholder: '837',  desc: 'Coil Outlet Temperature' },
+  { value: 2,  label: 'P/E ratio',          unit: '—',    placeholder: '0.42', desc: 'Propylene / Ethylene ratio' },
+  { value: 3,  label: 'M/P ratio',          unit: '—',    placeholder: '0.35', desc: 'Methane / Propylene ratio' },
+  { value: 4,  label: 'Ethane conv.',       unit: 'frac', placeholder: '0.65', desc: 'Ethane mass conversion fraction' },
+  { value: 5,  label: 'Propane conv.',      unit: 'frac', placeholder: '0.92', desc: 'Propane mass conversion fraction' },
+  { value: 6,  label: 'n-Butane conv.',     unit: 'frac', placeholder: '0.95', desc: 'n-Butane mass conversion fraction' },
+  { value: 7,  label: 'n-Pentane conv.',    unit: 'frac', placeholder: '0.96', desc: 'n-Pentane mass conversion fraction' },
+  { value: 8,  label: 'n-Hexane conv.',     unit: 'frac', placeholder: '0.97', desc: 'n-Hexane mass conversion fraction' },
+  { value: 9,  label: 'Yield max.',         unit: '—',    placeholder: '—',   desc: 'Yield maximization (no target value)' },
+  { value: 10, label: 'Ethylene yield',     unit: 'wt%',  placeholder: '50',   desc: 'Ethylene yield wt%' },
+  { value: 11, label: 'Methane yield',      unit: 'wt%',  placeholder: '4',    desc: 'Methane yield wt%' },
+  { value: 12, label: 'Conversion',         unit: 'frac', placeholder: '0.70', desc: 'Specific component conversion fraction' },
+  { value: 13, label: 'Mixture conv.',      unit: 'frac', placeholder: '0.70', desc: 'Mixture conversion fraction' },
 ]
 
+// Heat flux profile shapes (CoilSim exp.txt row 6: 1=Uniform, 2=Linear, 3=Sinusoidal, 4=Long Flame, 5=Custom)
 const FLUX_PROFILES = [
-  { value: 3, label: 'Uniform',     desc: 'Constant heat flux along coil length' },
-  { value: 1, label: 'Linear',      desc: 'Linearly increasing from inlet to outlet' },
-  { value: 2, label: 'Sinusoidal',  desc: 'Sinusoidal peak near coil mid-section' },
-  { value: 5, label: 'Long flame',  desc: 'High flux at inlet, typical long-flame burners' },
+  { value: 1, label: 'Uniform',     desc: 'Constant heat flux along the full coil length' },
+  { value: 2, label: 'Linear',      desc: 'Linearly increasing from coil inlet to outlet' },
+  { value: 3, label: 'Sinusoidal',  desc: 'Sinusoidal peak near coil mid-section' },
+  { value: 4, label: 'Long Flame',  desc: 'High flux near inlet — typical long-flame burners' },
+  { value: 5, label: 'Custom',      desc: 'User-defined flux distribution (provide profile file)' },
 ]
+
+// Piping properties
+const TUBE_MATERIALS = [
+  '800_800H', '800_800', 'HP_40', 'HK_40', 'Incoloy_825', 'Inconel_600', '304SS', '316SS', 'Custom',
+]
+const GAS_CONDUCTIVITY_CORRS = ['Modified Eucken', 'Eucken', 'Wassiljewa']
+const TUBE_TYPES = ['Smooth circular tube', 'Finned tube', 'Twisted tape insert']
 
 const COMPONENTS = [
   { id: 1,   name: 'Hydrogen',         formula: 'H₂',       group: 'Light gases' },
@@ -83,7 +98,7 @@ function defaultLeg(n: number): LegRow {
 interface CompRow { _key: number; component_id: number; wt_frac: number; in_conversion: boolean }
 
 // ── Step progress bar ─────────────────────────────────────────────────────────
-const STEPS = ['Project', 'Coil Type', 'Geometry', 'Feedstock', 'Conditions', 'Review']
+const STEPS = ['Project', 'Coil Type', 'Geometry', 'Feedstock', 'Conditions', 'Run Length', 'Review']
 
 function StepBar({ current }: { current: number }) {
   return (
@@ -166,6 +181,11 @@ function DesignCaseWizard() {
   const [adVol,  setAdVol]  = useState('1.0')
   const [adDia,  setAdDia]  = useState('0.12')
   const [adWall, setAdWall] = useState('0.007')
+  // Piping properties
+  const [perimRatio,   setPerimRatio]   = useState('1')
+  const [tubeMaterial, setTubeMaterial] = useState(TUBE_MATERIALS[0])
+  const [gasCorrCorr,  setGasCorrCorr]  = useState(GAS_CONDUCTIVITY_CORRS[0])
+  const [tubeType,     setTubeType]     = useState(TUBE_TYPES[0])
 
   function handleCoilTypeSelect(ct: typeof COIL_TYPES[number]) {
     setSelectedCoilType(ct)
@@ -218,13 +238,26 @@ function DesignCaseWizard() {
   }
 
   // ── Step 4: Conditions ───────────────────────────────────────────────────
-  const [sevType, setSevType] = useState(1)
-  const [cotVal,  setCotVal]  = useState('837')
-  const [flow,    setFlow]    = useState('1298')
-  const [dilut,   setDilut]   = useState('0.35')
-  const [cit,     setCit]     = useState('600')
-  const [cip,     setCip]     = useState('1.8')
-  const [profile, setProfile] = useState(3)
+  const [sevType,      setSevType]     = useState(1)
+  const [cotVal,       setCotVal]      = useState('837')
+  const [sevLoc,       setSevLoc]      = useState<'reactor_end'|'adiabatic_pct'|'tle_end'>('adiabatic_pct')
+  const [sevLocPct,    setSevLocPct]   = useState('60')
+  const [pressSev,     setPressSev]    = useState<'cop'|'eth_eth'>('cop')
+  const [pressLoc,     setPressLoc]    = useState<'reactor_end'|'adiabatic_pct'|'tle_end'>('adiabatic_pct')
+  const [pressLocPct,  setPressLocPct] = useState('100')
+  const [cop,          setCop]         = useState('2.053')
+  const [flow,         setFlow]        = useState('1298')
+  const [dilut,        setDilut]       = useState('0.35')
+  const [cit,          setCit]         = useState('668')
+  const [cip,          setCip]         = useState('2.59')
+  const [hfInputType,  setHfInputType] = useState<'net'|'incident'>('net')
+  const [profile,      setProfile]     = useState(1)
+
+  // ── Step 5: Run Length ───────────────────────────────────────────────────
+  const [runLengthSim,   setRunLengthSim]   = useState(false)
+  const [cokeModel,      setCokeModel]      = useState<'Plehiers'|'Reyniers'>('Plehiers')
+  const [cokeConduction, setCokeConduction] = useState('0.0045')
+  const [cokeDensity,    setCokeDensity]    = useState('1600.0')
 
   // ── Submit ───────────────────────────────────────────────────────────────
   const [submitState, setSubmitState] = useState<'idle'|'loading'|'ok'|'err'>('idle')
@@ -259,7 +292,15 @@ function DesignCaseWizard() {
         const [coilRes, feedRes] = await Promise.all([
           fetch('/api/coil-geometries', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: coilName || `${selectedCoilType.name}_${projName}`, ncoil: selectedCoilType.ncoil, legs: legsPayload, adiabatic_flag: hasAdvol, ...advolPayload }),
+            body: JSON.stringify({
+              name: coilName || `${selectedCoilType.name}_${projName}`,
+              ncoil: selectedCoilType.ncoil, legs: legsPayload,
+              adiabatic_flag: hasAdvol, ...advolPayload,
+              perimeter_ratio: Number(perimRatio),
+              tube_material: tubeMaterial,
+              gas_conductivity_corr: gasCorrCorr,
+              tube_type: tubeType,
+            }),
           }),
           fetch('/api/feedstock-definitions', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -279,7 +320,18 @@ function DesignCaseWizard() {
           type: 'design_case', coil_id, feed_id,
           cot: Number(cotVal), flow: Number(flow),
           dilution: Number(dilut), cit: Number(cit), cip: Number(cip),
+          cop: Number(cop),
           severity_type: sevType, flux_profile: profile,
+          sev_location: sevLoc,
+          sev_location_pct: sevLoc === 'adiabatic_pct' ? Number(sevLocPct) : null,
+          pressure_sev_type: pressSev,
+          pressure_location: pressLoc,
+          pressure_location_pct: pressLoc === 'adiabatic_pct' ? Number(pressLocPct) : null,
+          heat_flux_input_type: hfInputType,
+          run_length_sim: runLengthSim ? 1 : 0,
+          coke_model: cokeModel,
+          coke_conduction: Number(cokeConduction),
+          coke_density: Number(cokeDensity),
           project_name: projName,
         }),
       })
@@ -314,13 +366,15 @@ function DesignCaseWizard() {
     if (step === 2 && useMode === 'new') return legs.length > 0
     if (step === 3 && useMode === 'new') return comps.length > 0 && feedName.trim().length > 0
     if (step === 4) return cotVal.trim().length > 0 && flow.trim().length > 0
+    // step 5 (Run Length) — always valid
     return true
   }
 
   function next() { if (step < STEPS.length - 1) setStep(s => s + 1) }
   function back() { if (step > 0) setStep(s => s - 1) }
 
-  const sev = SEVERITY_OPTIONS.find(o => o.value === sevType)!
+  const sev = SEVERITY_OPTIONS.find(o => o.value === sevType) ?? SEVERITY_OPTIONS[0]
+  const sevNeedsTarget = sevType !== 9  // Yield maximization has no target value
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
@@ -528,6 +582,40 @@ function DesignCaseWizard() {
                   </div>
                 )}
               </div>
+
+              {/* Piping properties */}
+              <div className="card space-y-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Piping Properties</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Written to <code className="font-mono bg-gray-100 px-1 rounded">reactor.txt</code> piping section</p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Perimeter ratio</label>
+                    <input type="number" step="0.01" min="0.1" max="10" value={perimRatio}
+                      onChange={e => setPerimRatio(e.target.value)} className={inp} />
+                    <p className="text-[10px] text-gray-400 mt-0.5">Heated / total perimeter (default 1 = fully heated)</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Tube material</label>
+                    <select value={tubeMaterial} onChange={e => setTubeMaterial(e.target.value)} className={inp}>
+                      {TUBE_MATERIALS.map(m => <option key={m} value={m}>{m.replace(/_/g, ' ')}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Gas conductivity correlation</label>
+                    <select value={gasCorrCorr} onChange={e => setGasCorrCorr(e.target.value)} className={inp}>
+                      {GAS_CONDUCTIVITY_CORRS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Tube type</label>
+                    <select value={tubeType} onChange={e => setTubeType(e.target.value)} className={inp}>
+                      {TUBE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
             </>
           )}
 
@@ -644,21 +732,21 @@ function DesignCaseWizard() {
           <div>
             <h2 className="text-base font-semibold text-gray-900">Operating Conditions</h2>
             <p className="text-sm text-gray-400 mt-1">
-              Define severity target, flow rate, steam, and inlet conditions.
-              These are written to <code className="text-xs font-mono bg-gray-100 px-1 rounded">exp.txt</code>.
+              Severity, flow, steam, inlet conditions and heat flux profile — all written to{' '}
+              <code className="text-xs font-mono bg-gray-100 px-1 rounded">exp.txt</code>.
             </p>
           </div>
 
-          {/* Severity */}
+          {/* Temperature severity */}
           <div className="card space-y-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Severity Target</p>
-              <p className="text-xs text-gray-400 mt-0.5">CoilSim iterates until this target is matched (shooting method)</p>
+              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Temperature-Related Severity</p>
+              <p className="text-xs text-gray-400 mt-0.5">CoilSim shooting method — iterates until this target is matched</p>
             </div>
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               {SEVERITY_OPTIONS.map(o => (
                 <button key={o.value} onClick={() => setSevType(o.value)}
-                  className={`rounded-lg border px-3 py-2 text-xs text-center transition-all ${
+                  className={`rounded-lg border px-2 py-2 text-xs text-center transition-all ${
                     sevType === o.value
                       ? 'border-gray-900 bg-gray-900 text-white font-semibold'
                       : 'border-gray-200 text-gray-600 hover:border-gray-400'
@@ -667,64 +755,216 @@ function DesignCaseWizard() {
                 </button>
               ))}
             </div>
+            {sevNeedsTarget && (
+              <div className="max-w-xs">
+                <label className="block text-xs text-gray-500 mb-1">{sev.desc} ({sev.unit})</label>
+                <input type="number" value={cotVal} onChange={e => setCotVal(e.target.value)}
+                  placeholder={sev.placeholder} className={inp} />
+              </div>
+            )}
             <div>
-              <label className="block text-xs text-gray-500 mb-1">
-                {sev.desc} ({sev.unit})
-              </label>
-              <input type="number" value={cotVal} onChange={e => setCotVal(e.target.value)}
-                placeholder={sev.placeholder} className={inp + ' max-w-xs'} />
+              <p className="text-xs text-gray-500 mb-2">Measurement location</p>
+              <div className="flex flex-col gap-2">
+                {(['reactor_end', 'adiabatic_pct', 'tle_end'] as const).map(loc => (
+                  <label key={loc} className="flex items-center gap-3 cursor-pointer">
+                    <input type="radio" name="sevLoc" value={loc} checked={sevLoc === loc}
+                      onChange={() => setSevLoc(loc)} className="accent-gray-900" />
+                    <span className="text-sm text-gray-700">
+                      {loc === 'reactor_end' && 'At end of reactor'}
+                      {loc === 'adiabatic_pct' && (
+                        <span className="flex items-center gap-2">
+                          At <input type="number" min={0} max={100} value={sevLocPct}
+                            onClick={() => setSevLoc('adiabatic_pct')}
+                            onChange={e => { setSevLoc('adiabatic_pct'); setSevLocPct(e.target.value) }}
+                            className="w-16 border border-gray-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900" />
+                          % of adiabatic volume
+                        </span>
+                      )}
+                      {loc === 'tle_end' && 'At end of TLE'}
+                    </span>
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* Flow & Steam */}
+          {/* Pressure severity */}
           <div className="card space-y-4">
-            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Flow & Steam</p>
-            <div className="grid grid-cols-2 gap-4">
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Pressure-Related Severity</p>
+            <div className="flex gap-6">
+              {([['cop', 'Coil outlet pressure (COP)'], ['eth_eth', 'Ethylene / ethane ratio']] as const).map(([v, lbl]) => (
+                <label key={v} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                  <input type="radio" name="pressSev" value={v} checked={pressSev === v}
+                    onChange={() => setPressSev(v)} className="accent-gray-900" />
+                  {lbl}
+                </label>
+              ))}
+            </div>
+            {pressSev === 'cop' && (
+              <div className="max-w-xs">
+                <label className="block text-xs text-gray-500 mb-1">COP — Coil Outlet Pressure (atm)</label>
+                <input type="number" step="0.001" value={cop} onChange={e => setCop(e.target.value)} className={inp} />
+              </div>
+            )}
+            <div>
+              <p className="text-xs text-gray-500 mb-2">Measurement location</p>
+              <div className="flex flex-col gap-2">
+                {(['reactor_end', 'adiabatic_pct', 'tle_end'] as const).map(loc => (
+                  <label key={loc} className="flex items-center gap-3 cursor-pointer">
+                    <input type="radio" name="pressLoc" value={loc} checked={pressLoc === loc}
+                      onChange={() => setPressLoc(loc)} className="accent-gray-900" />
+                    <span className="text-sm text-gray-700">
+                      {loc === 'reactor_end' && 'At end of reactor'}
+                      {loc === 'adiabatic_pct' && (
+                        <span className="flex items-center gap-2">
+                          At <input type="number" min={0} max={100} value={pressLocPct}
+                            onClick={() => setPressLoc('adiabatic_pct')}
+                            onChange={e => { setPressLoc('adiabatic_pct'); setPressLocPct(e.target.value) }}
+                            className="w-16 border border-gray-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900" />
+                          % of adiabatic volume
+                        </span>
+                      )}
+                      {loc === 'tle_end' && 'At end of TLE'}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Heat flux profile */}
+          <div className="card space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Heat Flux Profile</p>
+            <div className="flex flex-col gap-2">
+              {([['net', 'Input net heat flux profile along reactor'], ['incident', 'Input incident heat flux profile in radiant box']] as const).map(([v, lbl]) => (
+                <label key={v} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                  <input type="radio" name="hfType" value={v} checked={hfInputType === v}
+                    onChange={() => setHfInputType(v)} className="accent-gray-900" />
+                  {lbl}
+                </label>
+              ))}
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 mb-2">Profile shape</p>
+              <div className="grid grid-cols-5 gap-2">
+                {FLUX_PROFILES.map(p => (
+                  <button key={p.value} onClick={() => setProfile(p.value)}
+                    className={`rounded-lg border px-3 py-2 text-xs text-center transition-all ${
+                      profile === p.value
+                        ? 'border-gray-900 bg-gray-900 text-white font-semibold'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-400'
+                    }`}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-2">{FLUX_PROFILES.find(p => p.value === profile)?.desc}</p>
+            </div>
+          </div>
+
+          {/* Flow, steam & inlet */}
+          <div className="card space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Flow, Steam & Inlet Conditions</p>
+            <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">HC Flow rate (kg/h per inlet tube)</label>
-                <input type="number" value={flow} onChange={e => setFlow(e.target.value)}
-                  placeholder="1298" className={inp} />
-                <p className="text-[10px] text-gray-400 mt-1">For split coils, enter flow to ONE inlet tube</p>
+                <label className="block text-xs text-gray-500 mb-1">Hydrocarbon flow (kg/h)</label>
+                <input type="number" value={flow} onChange={e => setFlow(e.target.value)} placeholder="1298" className={inp} />
+                <p className="text-[10px] text-gray-400 mt-0.5">Per inlet tube for split coils</p>
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Steam dilution (kg steam / kg HC)</label>
+                <label className="block text-xs text-gray-500 mb-1">Steam dilution (wt/wt)</label>
                 <input type="number" step="0.01" value={dilut} onChange={e => setDilut(e.target.value)} className={inp} />
-                <p className="text-[10px] text-gray-400 mt-1">Typical: Ethane 0.3–0.5 · Naphtha 0.5–0.8</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">Ethane 0.3–0.5 · Naphtha 0.5–0.8</p>
               </div>
-            </div>
-          </div>
-
-          {/* Inlet conditions */}
-          <div className="card space-y-4">
-            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Inlet Conditions</p>
-            <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">CIT — Coil Inlet Temp (°C)</label>
                 <input type="number" value={cit} onChange={e => setCit(e.target.value)} className={inp} />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">CIP — Coil Inlet Pressure (atm)</label>
-                <input type="number" step="0.1" value={cip} onChange={e => setCip(e.target.value)} className={inp} />
+                <label className="block text-xs text-gray-500 mb-1">CIP — Coil Inlet Pressure estimate (atm)</label>
+                <input type="number" step="0.01" value={cip} onChange={e => setCip(e.target.value)} className={inp} />
               </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Heat flux profile</label>
-                <select value={profile} onChange={e => setProfile(Number(e.target.value))} className={inp}>
-                  {FLUX_PROFILES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                </select>
-              </div>
-            </div>
-            <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
-              <strong>Flux profile:</strong> {FLUX_PROFILES.find(p => p.value === profile)?.desc}
             </div>
           </div>
 
           <Nav step={step} total={STEPS.length} onBack={back} onNext={next}
-            nextLabel="Review →" disabled={!canProceed()} />
+            nextLabel="Run Length →" disabled={!canProceed()} />
         </div>
       )}
 
-      {/* ── STEP 5: Review & Submit ───────────────────────────────────────── */}
+      {/* ── STEP 5: Run Length ────────────────────────────────────────────── */}
       {step === 5 && (
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Run Length & Coking</h2>
+            <p className="text-sm text-gray-400 mt-1">
+              Configure coke deposition model and run-length simulation parameters.
+            </p>
+          </div>
+
+          {/* Run length simulation toggle */}
+          <div className="card space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Run Length Simulation</p>
+            <div className="flex gap-6">
+              {([true, false] as const).map(v => (
+                <label key={String(v)} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                  <input type="radio" name="runLen" checked={runLengthSim === v}
+                    onChange={() => setRunLengthSim(v)} className="accent-gray-900" />
+                  {v ? 'Yes — simulate coke deposition over time' : 'No — clean-tube run only'}
+                </label>
+              ))}
+            </div>
+            {runLengthSim && (
+              <div className="rounded-lg bg-blue-50 border border-blue-100 px-4 py-3 text-xs text-blue-700">
+                The worker will iterate the coke deposition model over multiple run-length increments. Ensure a coke profile file is available or the bisection tuner will generate one.
+              </div>
+            )}
+          </div>
+
+          {/* Coking model */}
+          <div className="card space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Coke Deposition Model</p>
+            <div className="flex gap-6">
+              {(['Plehiers', 'Reyniers'] as const).map(m => (
+                <label key={m} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                  <input type="radio" name="cokeModel" checked={cokeModel === m}
+                    onChange={() => setCokeModel(m)} className="accent-gray-900" />
+                  <span>
+                    <span className="font-medium">{m}</span>
+                    <span className="text-gray-400 ml-2">
+                      {m === 'Plehiers' ? '(default — radical coking mechanism)' : '(Reyniers — surface reaction model)'}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Coke thermal properties */}
+          <div className="card space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Coke Thermal Properties</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Conduction coefficient [kcal/(K·m·s)]</label>
+                <input type="number" step="0.0001" value={cokeConduction}
+                  onChange={e => setCokeConduction(e.target.value)} className={inp} />
+                <p className="text-[10px] text-gray-400 mt-0.5">Default: 0.0045</p>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Coke density [kg/m³]</label>
+                <input type="number" step="10" value={cokeDensity}
+                  onChange={e => setCokeDensity(e.target.value)} className={inp} />
+                <p className="text-[10px] text-gray-400 mt-0.5">Default: 1600 kg/m³</p>
+              </div>
+            </div>
+          </div>
+
+          <Nav step={step} total={STEPS.length} onBack={back} onNext={next} nextLabel="Review →" />
+        </div>
+      )}
+
+      {/* ── STEP 6: Review & Submit ───────────────────────────────────────── */}
+      {step === 6 && (
         <div className="space-y-6">
           <div>
             <h2 className="text-base font-semibold text-gray-900">Review & Submit</h2>
@@ -769,15 +1009,39 @@ function DesignCaseWizard() {
             <div className="card space-y-2">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Conditions</p>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                {[
-                  [sev.label, `${cotVal} ${sev.unit}`],
-                  ['Flow', `${flow} kg/h`],
-                  ['Dilution', `${dilut} kg/kg`],
-                  ['CIT', `${cit} °C`],
-                  ['CIP', `${cip} atm`],
-                  ['Profile', FLUX_PROFILES.find(p => p.value === profile)?.label ?? '—'],
-                ].map(([k, v]) => (
-                  <div key={k as string} className="flex justify-between">
+                {([
+                  [sev.label,  sevNeedsTarget ? `${cotVal} ${sev.unit}` : 'maximise'],
+                  ['Flow',     `${flow} kg/h`],
+                  ['Dilution', `${dilut} wt/wt`],
+                  ['CIT',      `${cit} °C`],
+                  ['CIP',      `${cip} atm`],
+                  ['COP',      `${cop} atm`],
+                  ['Sev. loc', sevLoc === 'adiabatic_pct' ? `${sevLocPct}% adv` : sevLoc.replace('_', ' ')],
+                  ['Profile',  FLUX_PROFILES.find(p => p.value === profile)?.label ?? '—'],
+                ] as [string, string][]).map(([k, v]) => (
+                  <div key={k} className="flex justify-between">
+                    <span className="text-gray-400">{k}</span>
+                    <span className="font-medium text-gray-700">{v}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Piping & Run Length */}
+            <div className="card space-y-2">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Piping & Coking</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                {([
+                  ['Material',   tubeMaterial.replace(/_/g, ' ')],
+                  ['Tube type',  tubeType],
+                  ['Perim. ratio', perimRatio],
+                  ['Gas cond.',  gasCorrCorr],
+                  ['Coke model', cokeModel],
+                  ['Run length', runLengthSim ? 'Yes' : 'No'],
+                  ['Coke cond.', `${cokeConduction} kcal/Kms`],
+                  ['Coke dens.', `${cokeDensity} kg/m³`],
+                ] as [string, string][]).map(([k, v]) => (
+                  <div key={k} className="flex justify-between">
                     <span className="text-gray-400">{k}</span>
                     <span className="font-medium text-gray-700">{v}</span>
                   </div>
@@ -831,8 +1095,10 @@ function DesignCaseWizard() {
             </div>
           )}
 
-          {submitState !== 'ok' && (
-            <Nav step={step} total={STEPS.length} onBack={back} onNext={() => {}} nextLabel="" disabled />
+          {submitState !== 'ok' && submitState !== 'loading' && (
+            <button onClick={back} className="text-sm text-gray-400 hover:text-gray-700 transition-colors flex items-center gap-1">
+              ← Back to Run Length
+            </button>
           )}
         </div>
       )}
