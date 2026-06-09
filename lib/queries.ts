@@ -93,7 +93,7 @@ export async function insertCoilGeometry(
 ): Promise<number> {
   const res = await pool.query<{ id: number }>(
     'INSERT INTO cs_py_int.coil_geometries (name, ncoil, legs, adiabatic_flag) VALUES ($1, $2, $3, $4) RETURNING id',
-    [name, ncoil, JSON.stringify(extra ? { legs, ...extra } : legs), adiabatic_flag]
+    [name, ncoil, JSON.stringify(extra ? { legs, ...extra } : legs), adiabatic_flag ? 1 : 0]
   )
   return res.rows[0].id
 }
