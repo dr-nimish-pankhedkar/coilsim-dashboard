@@ -23,20 +23,23 @@ const COIL_TYPES = [
   { ncoil: 14, name: 'M-coil',         passes: 4,  desc: 'M-shaped multi-pass coil',            icon: 'M'  },
 ]
 
+// Severity type values MUST match CoilSim exp.txt shooting_flag integers exactly.
+// Confirmed from working model (YSB_Geo_Operating): COT = shooting_flag 2.
+// CoilSim reserve value 1 for "specified flux profile / no shooting iteration".
 const SEVERITY_OPTIONS = [
-  { value: 1,  label: 'COT',                unit: '°C',   placeholder: '837',  desc: 'Coil Outlet Temperature' },
-  { value: 2,  label: 'P/E ratio',          unit: '—',    placeholder: '0.42', desc: 'Propylene / Ethylene ratio' },
-  { value: 3,  label: 'M/P ratio',          unit: '—',    placeholder: '0.35', desc: 'Methane / Propylene ratio' },
-  { value: 4,  label: 'Ethane conv.',       unit: 'frac', placeholder: '0.65', desc: 'Ethane mass conversion fraction' },
-  { value: 5,  label: 'Propane conv.',      unit: 'frac', placeholder: '0.92', desc: 'Propane mass conversion fraction' },
-  { value: 6,  label: 'n-Butane conv.',     unit: 'frac', placeholder: '0.95', desc: 'n-Butane mass conversion fraction' },
-  { value: 7,  label: 'n-Pentane conv.',    unit: 'frac', placeholder: '0.96', desc: 'n-Pentane mass conversion fraction' },
-  { value: 8,  label: 'n-Hexane conv.',     unit: 'frac', placeholder: '0.97', desc: 'n-Hexane mass conversion fraction' },
-  { value: 9,  label: 'Yield max.',         unit: '—',    placeholder: '—',   desc: 'Yield maximization (no target value)' },
-  { value: 10, label: 'Ethylene yield',     unit: 'wt%',  placeholder: '50',   desc: 'Ethylene yield wt%' },
-  { value: 11, label: 'Methane yield',      unit: 'wt%',  placeholder: '4',    desc: 'Methane yield wt%' },
-  { value: 12, label: 'Conversion',         unit: 'frac', placeholder: '0.70', desc: 'Specific component conversion fraction' },
-  { value: 13, label: 'Mixture conv.',      unit: 'frac', placeholder: '0.70', desc: 'Mixture conversion fraction' },
+  { value: 2,  label: 'COT',                unit: '°C',   placeholder: '845',  desc: 'Coil Outlet Temperature' },
+  { value: 3,  label: 'P/E ratio',          unit: '—',    placeholder: '0.42', desc: 'Propylene / Ethylene ratio' },
+  { value: 4,  label: 'M/P ratio',          unit: '—',    placeholder: '0.35', desc: 'Methane / Propylene ratio' },
+  { value: 5,  label: 'Ethane conv.',       unit: 'frac', placeholder: '0.65', desc: 'Ethane mass conversion fraction' },
+  { value: 6,  label: 'Propane conv.',      unit: 'frac', placeholder: '0.92', desc: 'Propane mass conversion fraction' },
+  { value: 7,  label: 'n-Butane conv.',     unit: 'frac', placeholder: '0.95', desc: 'n-Butane mass conversion fraction' },
+  { value: 8,  label: 'n-Pentane conv.',    unit: 'frac', placeholder: '0.96', desc: 'n-Pentane mass conversion fraction' },
+  { value: 9,  label: 'n-Hexane conv.',     unit: 'frac', placeholder: '0.97', desc: 'n-Hexane mass conversion fraction' },
+  { value: 10, label: 'Yield max.',         unit: '—',    placeholder: '—',   desc: 'Yield maximization (no target value)' },
+  { value: 11, label: 'Ethylene yield',     unit: 'wt%',  placeholder: '50',   desc: 'Ethylene yield wt%' },
+  { value: 12, label: 'Methane yield',      unit: 'wt%',  placeholder: '4',    desc: 'Methane yield wt%' },
+  { value: 13, label: 'Conversion',         unit: 'frac', placeholder: '0.70', desc: 'Specific component conversion fraction' },
+  { value: 14, label: 'Mixture conv.',      unit: 'frac', placeholder: '0.70', desc: 'Mixture conversion fraction' },
 ]
 
 // Heat flux profile shapes (CoilSim exp.txt row 6: 1=Uniform, 2=Linear, 3=Sinusoidal, 4=Long Flame, 5=Custom)

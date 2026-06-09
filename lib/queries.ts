@@ -175,7 +175,7 @@ export async function submitDesignCaseRun(
     [
       coil_id, feed_id, p.cot, p.flow, project_name,
       p.dilution ?? 0.35, p.cit ?? 668, p.cip ?? 2.59, p.cop ?? 2.053,
-      p.severity_type ?? 1, p.sev_location ?? 'adiabatic_pct', p.sev_location_pct ?? 60,
+      p.severity_type ?? 2, p.sev_location ?? 'adiabatic_pct', p.sev_location_pct ?? 60,
       p.pressure_sev_type ?? 'cop', p.pressure_location ?? 'adiabatic_pct', p.pressure_location_pct ?? 100,
       p.heat_flux_input_type ?? 'net', p.flux_profile ?? 1,
       p.run_length_sim ?? 0, p.coke_model ?? 'Plehiers',
