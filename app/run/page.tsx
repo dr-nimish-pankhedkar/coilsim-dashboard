@@ -188,12 +188,12 @@ function DesignCaseWizard() {
   const [legs, setLegs] = useState<LegRow[]>(
     Array.from({ length: COIL_TYPES[0].passes }, (_, i) => defaultLeg(i))
   )
-  const [hasAdvol, setHasAdvol] = useState(false)
+  const [hasAdvol, setHasAdvol] = useState(true)   // YSB furnace has adiabatic volume
   const [adVol,  setAdVol]  = useState('1.0')
-  const [adDia,  setAdDia]  = useState('0.12')
-  const [adWall, setAdWall] = useState('0.007')
+  const [adDia,  setAdDia]  = useState('0.1')
+  const [adWall, setAdWall] = useState('0.008')
   // Piping properties
-  const [perimRatio,   setPerimRatio]   = useState('1')
+  const [perimRatio,   setPerimRatio]   = useState('0.985')
   const [tubeMaterial, setTubeMaterial] = useState(TUBE_MATERIALS[0])
   const [gasCorrCorr,  setGasCorrCorr]  = useState(GAS_CONDUCTIVITY_CORRS[0])
   const [tubeType,     setTubeType]     = useState(TUBE_TYPES[0])
