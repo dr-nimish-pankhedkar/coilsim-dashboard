@@ -93,9 +93,17 @@ const smallInp = 'w-full border border-gray-200 rounded px-2 py-1.5 text-xs focu
 // ── Leg default ───────────────────────────────────────────────────────────────
 interface LegRow { length: number; diameter: number; wall_thickness: number; bend_length: number; adiabatic: boolean }
 function defaultLeg(n: number): LegRow {
-  // Typical YSB W-coil dimensions
-  const diams = [0.060, 0.072, 0.088, 0.105]
-  return { length: 14.0, diameter: diams[n % 4] ?? 0.09, wall_thickness: 0.007, bend_length: 0.27, adiabatic: false }
+  // Default dimensions from YSB_Geo_Operating reactor.txt (ncoil=2, 4-pass Millisecond)
+  const lengths = [14.670, 13.250, 13.250, 13.695]
+  const diams   = [0.090,  0.090,  0.100,  0.100]
+  const bends   = [0.370,  0.510,  0.531,  0.370]
+  return {
+    length: lengths[n] ?? 14.0,
+    diameter: diams[n] ?? 0.09,
+    wall_thickness: 0.007,
+    bend_length: bends[n] ?? 0.37,
+    adiabatic: n === 3,   // last leg is adiabatic
+  }
 }
 
 interface CompRow { _key: number; component_id: number; wt_frac: number; in_conversion: boolean }
