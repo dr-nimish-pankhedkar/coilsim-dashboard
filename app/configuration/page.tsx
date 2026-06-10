@@ -155,7 +155,7 @@ export default function ConfigurationPage() {
               The CoilSim project folders on disk are not deleted.
             </p>
             <div className="flex gap-3">
-              <button onClick={handleDeleteDesignCases} disabled={dcStatus === 'loading'}
+              <button onClick={handleDeleteDesignCases}
                 className="flex-1 rounded-lg bg-red-600 text-white text-sm font-semibold py-2 hover:bg-red-700 transition-colors disabled:opacity-60">
                 Yes, delete all
               </button>
