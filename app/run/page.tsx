@@ -256,6 +256,37 @@ function DesignCaseWizard() {
   const [hfInputType,  setHfInputType] = useState<'net'|'incident'>('net')
   const [profile,      setProfile]     = useState(1)
 
+  // Custom flux profile table: list of {z, q} points
+  interface FluxRow { _key: number; z: string; q: string }
+  const [fluxRows, setFluxRows] = useState<FluxRow[]>([
+    { _key: 0, z: '0',  q: '0' },
+    { _key: 1, z: '14', q: '20' },
+    { _key: 2, z: '28', q: '18' },
+    { _key: 3, z: '42', q: '15' },
+    { _key: 4, z: '56', q: '0' },
+  ])
+  const [fluxKey, setFluxKey] = useState(5)
+
+  function addFluxRow() {
+    setFluxRows(r => [...r, { _key: fluxKey, z: '', q: '' }])
+    setFluxKey(k => k + 1)
+  }
+  function removeFluxRow(key: number) { setFluxRows(r => r.filter(x => x._key !== key)) }
+  function updateFluxRow(key: number, field: 'z'|'q', val: string) {
+    setFluxRows(r => r.map(x => x._key !== key ? x : { ...x, [field]: val }))
+  }
+  function parseFluxFile(text: string) {
+    const rows: FluxRow[] = []
+    let k = fluxKey
+    for (const line of text.split('\n')) {
+      const parts = line.trim().split(/\s+/)
+      if (parts.length >= 2 && !isNaN(Number(parts[0])) && !isNaN(Number(parts[1]))) {
+        rows.push({ _key: k++, z: parts[0], q: parts[1] })
+      }
+    }
+    if (rows.length > 0) { setFluxRows(rows); setFluxKey(k) }
+  }
+
   // ── Step 5: Run Length ───────────────────────────────────────────────────
   const [runLengthSim,   setRunLengthSim]   = useState(false)
   const [cokeModel,      setCokeModel]      = useState<'Plehiers'|'Reyniers'>('Plehiers')
@@ -329,6 +360,9 @@ function DesignCaseWizard() {
           dilution: Number(dilut), cit: Number(cit), cip: Number(cip),
           cop: Number(cop),
           severity_type: sevType, flux_profile: profile,
+          custom_flux_points: profile === 5
+            ? fluxRows.map(r => ({ z: parseFloat(r.z), q: parseFloat(r.q) })).filter(p => !isNaN(p.z) && !isNaN(p.q))
+            : undefined,
           sev_location: sevLoc,
           sev_location_pct: sevLoc === 'adiabatic_pct' ? Number(sevLocPct) : null,
           pressure_sev_type: pressSev,
@@ -867,6 +901,92 @@ function DesignCaseWizard() {
               </div>
               <p className="text-[11px] text-gray-400 mt-2">{FLUX_PROFILES.find(p => p.value === profile)?.desc}</p>
             </div>
+
+            {/* Custom flux editor — only shown when Custom is selected */}
+            {profile === 5 && (
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-gray-500">Custom Flux Profile</p>
+                  <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-500 hover:text-gray-800 transition-colors">
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    Import flux.txt
+                    <input type="file" accept=".txt,.csv" className="hidden"
+                      onChange={e => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        file.text().then(parseFluxFile)
+                        e.target.value = ''
+                      }} />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Table */}
+                  <div className="space-y-1">
+                    <div className="grid grid-cols-[1fr_1fr_auto] gap-1 text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-1">
+                      <span>Axial pos (m)</span>
+                      <span>Flux (kW/m²)</span>
+                      <span />
+                    </div>
+                    <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                      {fluxRows.map(row => (
+                        <div key={row._key} className="grid grid-cols-[1fr_1fr_auto] gap-1 items-center">
+                          <input type="number" step="0.01" value={row.z}
+                            onChange={e => updateFluxRow(row._key, 'z', e.target.value)}
+                            placeholder="0.0" className={smallInp} />
+                          <input type="number" step="0.1" value={row.q}
+                            onChange={e => updateFluxRow(row._key, 'q', e.target.value)}
+                            placeholder="20.0" className={smallInp} />
+                          <button onClick={() => removeFluxRow(row._key)}
+                            className="text-gray-300 hover:text-red-400 text-base leading-none px-1">×</button>
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={addFluxRow}
+                      className="text-xs text-gray-400 hover:text-gray-700 mt-1 flex items-center gap-1">
+                      <span className="text-base leading-none">+</span> Add point
+                    </button>
+                  </div>
+
+                  {/* Live chart preview */}
+                  <div className="flex flex-col gap-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Preview</p>
+                    <div className="flex-1 min-h-[160px] bg-white rounded-lg border border-gray-100 p-2">
+                      {(() => {
+                        const pts = fluxRows
+                          .map(r => ({ z: parseFloat(r.z), q: parseFloat(r.q) }))
+                          .filter(p => !isNaN(p.z) && !isNaN(p.q))
+                          .sort((a, b) => a.z - b.z)
+                        if (pts.length < 2) return (
+                          <p className="text-[10px] text-gray-300 text-center mt-8">Add at least 2 points</p>
+                        )
+                        const maxZ = Math.max(...pts.map(p => p.z))
+                        const maxQ = Math.max(...pts.map(p => p.q)) || 1
+                        const W = 200, H = 140, pad = 20
+                        const cx = (z: number) => pad + (z / maxZ) * (W - pad * 2)
+                        const cy = (q: number) => H - pad - (q / maxQ) * (H - pad * 2)
+                        const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${cx(p.z).toFixed(1)},${cy(p.q).toFixed(1)}`).join(' ')
+                        return (
+                          <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full">
+                            <line x1={pad} y1={pad} x2={pad} y2={H - pad} stroke="#e5e7eb" strokeWidth="1"/>
+                            <line x1={pad} y1={H - pad} x2={W - pad} y2={H - pad} stroke="#e5e7eb" strokeWidth="1"/>
+                            <path d={d} fill="none" stroke="#6366f1" strokeWidth="1.5" strokeLinejoin="round"/>
+                            {pts.map((p, i) => (
+                              <circle key={i} cx={cx(p.z)} cy={cy(p.q)} r="2.5" fill="#6366f1"/>
+                            ))}
+                            <text x={pad} y={H - 4} fontSize="8" fill="#9ca3af">{pts[0].z.toFixed(0)} m</text>
+                            <text x={W - pad} y={H - 4} fontSize="8" fill="#9ca3af" textAnchor="end">{maxZ.toFixed(0)} m</text>
+                            <text x={pad - 2} y={pad + 4} fontSize="8" fill="#9ca3af" textAnchor="end">{maxQ.toFixed(0)}</text>
+                          </svg>
+                        )
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Flow, steam & inlet */}
