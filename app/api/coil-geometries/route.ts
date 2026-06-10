@@ -15,7 +15,8 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const { name, ncoil, legs, adiabatic_flag,
-            perimeter_ratio, tube_material, gas_conductivity_corr, tube_type } = body
+            perimeter_ratio, tube_material, gas_conductivity_corr, tube_type,
+            adiabatic_diameter, adiabatic_wall } = body
     if (!name || !ncoil || !legs?.length) {
       return NextResponse.json({ error: 'Missing required fields: name, ncoil, legs' }, { status: 400 })
     }
@@ -24,6 +25,8 @@ export async function POST(req: NextRequest) {
     if (tube_material)               extra.tube_material        = tube_material
     if (gas_conductivity_corr)       extra.gas_conductivity_corr = gas_conductivity_corr
     if (tube_type)                   extra.tube_type            = tube_type
+    if (adiabatic_diameter != null)  extra.adiabatic_diameter   = Number(adiabatic_diameter)
+    if (adiabatic_wall     != null)  extra.adiabatic_wall_t     = Number(adiabatic_wall)
     const id = await insertCoilGeometry(
       name, Number(ncoil), legs, adiabatic_flag ?? false,
       Object.keys(extra).length ? extra : undefined

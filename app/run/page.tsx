@@ -241,7 +241,7 @@ function DesignCaseWizard() {
   }
 
   // ── Step 4: Conditions ───────────────────────────────────────────────────
-  const [sevType,      setSevType]     = useState(1)
+  const [sevType,      setSevType]     = useState(2)   // 2 = COT (matches CoilSim shooting_flag)
   const [cotVal,       setCotVal]      = useState('837')
   const [sevLoc,       setSevLoc]      = useState<'reactor_end'|'adiabatic_pct'|'tle_end'>('adiabatic_pct')
   const [sevLocPct,    setSevLocPct]   = useState('60')
