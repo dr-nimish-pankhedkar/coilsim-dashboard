@@ -592,6 +592,12 @@ function DesignCaseWizard() {
                     ))}
                   </tbody>
                 </table>
+                <p className="text-xs text-amber-600 mt-2">
+                  ⚠ <strong>Leg 1 length</strong> must be the <em>total</em> tube length including any adiabatic
+                  pre-volume section at the coil inlet. The CoilSim GUI displays the heated length only —
+                  add the pre-volume length back before entering here
+                  (e.g. YSB: 13.685 m heated + 0.985 m pre-volume = <strong>14.670 m</strong>).
+                </p>
               </div>
 
               {/* Adiabatic volume */}
