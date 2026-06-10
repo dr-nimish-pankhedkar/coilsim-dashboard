@@ -93,8 +93,9 @@ const smallInp = 'w-full border border-gray-200 rounded px-2 py-1.5 text-xs focu
 // ── Leg default ───────────────────────────────────────────────────────────────
 interface LegRow { length: number; diameter: number; wall_thickness: number; bend_length: number; adiabatic: boolean }
 function defaultLeg(n: number): LegRow {
-  // Default dimensions from YSB_Geo_Operating reactor.txt (ncoil=2, 4-pass W-coil)
-  const lengths = [14.670, 13.250, 13.250, 13.695]
+  // Default dimensions from YSB_Geo_Operating (ncoil=2, 4-pass W-coil).
+  // Leg 1 length is the heated section only — pre-volume (0.985 m) is separate.
+  const lengths = [13.685, 13.250, 13.250, 13.695]
   const diams   = [0.090,  0.090,  0.100,  0.100]
   const bends   = [0.370,  0.510,  0.531,  0.370]
   return {
@@ -188,7 +189,9 @@ function DesignCaseWizard() {
   const [legs, setLegs] = useState<LegRow[]>(
     Array.from({ length: COIL_TYPES[0].passes }, (_, i) => defaultLeg(i))
   )
-  const [hasAdvol, setHasAdvol] = useState(true)   // YSB furnace has adiabatic volume
+  const [hasPrevol, setHasPrevol] = useState(true)
+  const [preVolLength, setPreVolLength] = useState('0.985')
+  const [hasAdvol, setHasAdvol] = useState(true)
   const [adVol,  setAdVol]  = useState('1.0')
   const [adDia,  setAdDia]  = useState('0.1')
   const [adWall, setAdWall] = useState('0.008')
@@ -327,6 +330,9 @@ function DesignCaseWizard() {
         const advolPayload = hasAdvol
           ? { adiabatic_volume: Number(adVol), adiabatic_diameter: Number(adDia), adiabatic_wall: Number(adWall) }
           : {}
+        const prevolPayload = hasPrevol
+          ? { pre_volume_enabled: true, pre_volume_length: Number(preVolLength) }
+          : { pre_volume_enabled: false }
 
         const [coilRes, feedRes] = await Promise.all([
           fetch('/api/coil-geometries', {
@@ -334,7 +340,7 @@ function DesignCaseWizard() {
             body: JSON.stringify({
               name: coilName || `${selectedCoilType.name}_${projName}`,
               ncoil: selectedCoilType.ncoil, legs: legsPayload,
-              adiabatic_flag: hasAdvol, ...advolPayload,
+              adiabatic_flag: hasAdvol, ...advolPayload, ...prevolPayload,
               perimeter_ratio: Number(perimRatio),
               tube_material: tubeMaterial,
               gas_conductivity_corr: gasCorrCorr,
@@ -592,35 +598,53 @@ function DesignCaseWizard() {
                     ))}
                   </tbody>
                 </table>
-                <p className="text-xs text-amber-600 mt-2">
-                  ⚠ <strong>Leg 1 length</strong> must be the <em>total</em> tube length including any adiabatic
-                  pre-volume section at the coil inlet. The CoilSim GUI displays the heated length only —
-                  add the pre-volume length back before entering here
-                  (e.g. YSB: 13.685 m heated + 0.985 m pre-volume = <strong>14.670 m</strong>).
-                </p>
               </div>
 
-              {/* Adiabatic volume */}
-              <div className="card">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={hasAdvol} onChange={e => setHasAdvol(e.target.checked)}
-                    className="w-4 h-4 rounded accent-gray-900" />
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">Include adiabatic transfer line volume</p>
-                    <p className="text-xs text-gray-400">The section after the coil outlet before the TLE quench</p>
-                  </div>
-                </label>
-                {hasAdvol && (
-                  <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-gray-100">
-                    {[['Volume (×10⁻³ m³)', adVol, setAdVol], ['Diameter (m)', adDia, setAdDia], ['Wall (m)', adWall, setAdWall]].map(([lbl, val, set]) => (
-                      <div key={lbl as string}>
-                        <label className="block text-xs text-gray-500 mb-1">{lbl as string}</label>
-                        <input type="number" step="0.001" value={val as string}
-                          onChange={e => (set as Function)(e.target.value)} className={inp} />
-                      </div>
-                    ))}
-                  </div>
-                )}
+              {/* Pre-volume + Adiabatic volume — side-by-side matching CoilSim GUI layout */}
+              <div className="grid grid-cols-2 gap-4">
+
+                {/* Adiabatic pre-volume (coil inlet) */}
+                <div className="card">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input type="checkbox" checked={hasPrevol} onChange={e => setHasPrevol(e.target.checked)}
+                      className="w-4 h-4 rounded accent-gray-900" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Adiabatic pre-volume</p>
+                      <p className="text-xs text-gray-400">Unheated inlet section at the start of leg 1</p>
+                    </div>
+                  </label>
+                  {hasPrevol && (
+                    <div className="mt-4 pt-4 border-t border-gray-100">
+                      <label className="block text-xs text-gray-500 mb-1">Length (m)</label>
+                      <input type="number" step="0.001" value={preVolLength}
+                        onChange={e => setPreVolLength(e.target.value)} className={inp} />
+                    </div>
+                  )}
+                </div>
+
+                {/* Adiabatic volume (coil outlet / TLE) */}
+                <div className="card">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input type="checkbox" checked={hasAdvol} onChange={e => setHasAdvol(e.target.checked)}
+                      className="w-4 h-4 rounded accent-gray-900" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Adiabatic volume</p>
+                      <p className="text-xs text-gray-400">Transfer line volume after coil outlet before TLE quench</p>
+                    </div>
+                  </label>
+                  {hasAdvol && (
+                    <div className="grid grid-cols-1 gap-3 mt-4 pt-4 border-t border-gray-100">
+                      {[['Volume (×10⁻³ m³)', adVol, setAdVol], ['Diameter (m)', adDia, setAdDia], ['Wall (m)', adWall, setAdWall]].map(([lbl, val, set]) => (
+                        <div key={lbl as string}>
+                          <label className="block text-xs text-gray-500 mb-1">{lbl as string}</label>
+                          <input type="number" step="0.001" value={val as string}
+                            onChange={e => (set as Function)(e.target.value)} className={inp} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
               </div>
 
               {/* Piping properties */}
