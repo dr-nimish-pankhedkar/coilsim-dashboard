@@ -124,7 +124,7 @@ export default function ConfigurationPage() {
           <span className="text-[10px] font-semibold bg-red-50 text-red-600 border border-red-100 px-2 py-1 rounded-full whitespace-nowrap">Destructive</span>
         </div>
 
-        {dcStatus !== 'confirm' ? (
+        {dcStatus !== 'confirm' && dcStatus !== 'loading' ? (
           <div className="space-y-3">
             <input
               type="password"
@@ -143,6 +143,10 @@ export default function ConfigurationPage() {
             {dcStatus === 'success' && <p className="text-sm text-emerald-600">{dcMessage}</p>}
             {dcStatus === 'error'   && <p className="text-sm text-red-600">{dcMessage}</p>}
           </div>
+        ) : dcStatus === 'loading' ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600 text-center">
+            Deleting…
+          </div>
         ) : (
           <div className="rounded-xl border border-red-200 bg-red-50 p-4 space-y-3">
             <p className="text-sm font-semibold text-red-700">Are you sure?</p>
@@ -151,9 +155,9 @@ export default function ConfigurationPage() {
               The CoilSim project folders on disk are not deleted.
             </p>
             <div className="flex gap-3">
-              <button onClick={handleDeleteDesignCases}
-                className="flex-1 rounded-lg bg-red-600 text-white text-sm font-semibold py-2 hover:bg-red-700 transition-colors">
-                {dcStatus === 'loading' ? 'Deleting…' : 'Yes, delete all'}
+              <button onClick={handleDeleteDesignCases} disabled={dcStatus === 'loading'}
+                className="flex-1 rounded-lg bg-red-600 text-white text-sm font-semibold py-2 hover:bg-red-700 transition-colors disabled:opacity-60">
+                Yes, delete all
               </button>
               <button onClick={() => { setDcStatus('idle'); setDcPassword('') }}
                 className="flex-1 rounded-lg border border-gray-200 text-gray-600 text-sm py-2 hover:bg-gray-50 transition-colors">
