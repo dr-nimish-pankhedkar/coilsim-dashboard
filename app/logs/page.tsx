@@ -60,16 +60,28 @@ function TaskSummaryTab() {
         </thead>
         <tbody>
           {data.map(t => (
-            <tr key={t.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-              <td className="py-2.5 pr-5 font-mono text-gray-500">#{t.id}</td>
-              <td className="py-2.5 pr-5"><TypeBadge type={t.task_type} /></td>
-              <td className="py-2.5 pr-5"><StatusBadge status={t.status} /></td>
-              <td className="py-2.5 pr-5 text-gray-600 max-w-[120px] truncate" title={t.project_name ?? ''}>{t.project_name ?? '—'}</td>
-              <td className="py-2.5 pr-5 text-gray-500 whitespace-nowrap">{fmt(t.created_at)}</td>
-              <td className="py-2.5 pr-5 text-gray-500 whitespace-nowrap">{fmt(t.completed_at)}</td>
-              <td className="py-2.5 pr-5 tabular-nums">{t.cot_input?.toFixed(1) ?? '—'}</td>
-              <td className="py-2.5 pr-5 tabular-nums">{t.flow_input?.toFixed(0) ?? '—'}</td>
-            </tr>
+            <>
+              <tr key={t.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                <td className="py-2.5 pr-5 font-mono text-gray-500">#{t.id}</td>
+                <td className="py-2.5 pr-5"><TypeBadge type={t.task_type} /></td>
+                <td className="py-2.5 pr-5"><StatusBadge status={t.status} /></td>
+                <td className="py-2.5 pr-5 text-gray-600 max-w-[120px] truncate" title={t.project_name ?? ''}>{t.project_name ?? '—'}</td>
+                <td className="py-2.5 pr-5 text-gray-500 whitespace-nowrap">{fmt(t.created_at)}</td>
+                <td className="py-2.5 pr-5 text-gray-500 whitespace-nowrap">{fmt(t.completed_at)}</td>
+                <td className="py-2.5 pr-5 tabular-nums">{t.cot_input?.toFixed(1) ?? '—'}</td>
+                <td className="py-2.5 pr-5 tabular-nums">{t.flow_input?.toFixed(0) ?? '—'}</td>
+              </tr>
+              {(t.status === 'Error' || t.status === 'Failed') && t.error_message && (
+                <tr key={`${t.id}-err`} className="border-b border-red-50 bg-red-50/40">
+                  <td colSpan={8} className="px-3 py-2">
+                    <p className="text-xs text-red-700 font-mono break-all">
+                      <span className="font-semibold not-italic font-sans mr-2">Error:</span>
+                      {t.error_message}
+                    </p>
+                  </td>
+                </tr>
+              )}
+            </>
           ))}
         </tbody>
       </table>

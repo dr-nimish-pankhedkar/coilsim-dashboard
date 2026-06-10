@@ -41,7 +41,7 @@ export async function getYieldsForTask(taskId: number): Promise<YieldRecord[]> {
 
 export async function getAllTasks(): Promise<SimulationTask[]> {
   const res = await pool.query<SimulationTask>(
-    'SELECT id, status, task_type, created_at, completed_at, cot_input, flow_input, project_name, coil_id, feed_id FROM cs_py_int.simulation_tasks ORDER BY id DESC'
+    'SELECT id, status, task_type, created_at, completed_at, cot_input, flow_input, project_name, coil_id, feed_id, error_message FROM cs_py_int.simulation_tasks ORDER BY id DESC'
   )
   return res.rows
 }

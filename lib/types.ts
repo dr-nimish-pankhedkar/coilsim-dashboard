@@ -17,6 +17,7 @@ export interface SimulationTask {
   flux_profile: number | null
   design_case_id: number | null
   coil_number: number | null
+  error_message: string | null
 }
 
 export interface DesignCase {
