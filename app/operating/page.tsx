@@ -1,11 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import useSWR from 'swr'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
-import type { OperatingCoilRow } from '@/lib/types'
+import type { OperatingCoilRow, DesignCase } from '@/lib/types'
+
+const ACTIVE_MODEL_KEY = 'coilsim_active_design_case_id'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
@@ -14,13 +16,13 @@ const inp = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ou
 
 // ── Severity options (mirrors run page) ───────────────────────────────────────
 const SEVERITY_OPTIONS = [
-  { value: 1,  label: 'COT',               unit: '°C',   placeholder: '837', desc: 'Coil Outlet Temperature' },
-  { value: 2,  label: 'P/E ratio',         unit: '—',    placeholder: '0.42', desc: 'Propylene / Ethylene' },
-  { value: 3,  label: 'M/P ratio',         unit: '—',    placeholder: '0.35', desc: 'Methane / Propylene' },
-  { value: 4,  label: 'Ethane conversion', unit: 'frac', placeholder: '0.65', desc: 'Mass conversion fraction' },
-  { value: 5,  label: 'Propane conversion',unit: 'frac', placeholder: '0.92', desc: 'Mass conversion fraction' },
-  { value: 6,  label: 'n-Butane conv.',    unit: 'frac', placeholder: '0.95', desc: 'Mass conversion fraction' },
-  { value: 10, label: 'Ethylene prod.',    unit: 'kg/h', placeholder: '500',  desc: 'Ethylene production rate' },
+  { value: 2,  label: 'COT',               unit: '°C',   placeholder: '837', desc: 'Coil Outlet Temperature' },
+  { value: 3,  label: 'P/E ratio',         unit: '—',    placeholder: '0.42', desc: 'Propylene / Ethylene' },
+  { value: 4,  label: 'M/P ratio',         unit: '—',    placeholder: '0.35', desc: 'Methane / Propylene' },
+  { value: 5,  label: 'Ethane conversion', unit: 'frac', placeholder: '0.65', desc: 'Mass conversion fraction' },
+  { value: 6,  label: 'Propane conversion',unit: 'frac', placeholder: '0.92', desc: 'Mass conversion fraction' },
+  { value: 7,  label: 'n-Butane conv.',    unit: 'frac', placeholder: '0.95', desc: 'Mass conversion fraction' },
+  { value: 11, label: 'Ethylene prod.',    unit: 'kg/h', placeholder: '500',  desc: 'Ethylene production rate' },
 ]
 
 const FLUX_PROFILES = [
@@ -32,16 +34,34 @@ const FLUX_PROFILES = [
 
 // ── Hourly Run panel ──────────────────────────────────────────────────────────
 function HourlyRunPanel() {
-  const [open,    setOpen]    = useState(false)
-  const [cot,     setCot]     = useState('')
-  const [flow,    setFlow]    = useState('')
-  const [dilut,   setDilut]   = useState('0.35')
-  const [cit,     setCit]     = useState('600')
-  const [cip,     setCip]     = useState('1.8')
-  const [sevType, setSevType] = useState(1)
-  const [profile, setProfile] = useState(3)
-  const [state,   setState]   = useState<'idle'|'loading'|'ok'|'err'>('idle')
-  const [msg,     setMsg]     = useState('')
+  const [open,           setOpen]         = useState(false)
+  const [cot,            setCot]          = useState('')
+  const [flow,           setFlow]         = useState('')
+  const [dilut,          setDilut]        = useState('0.35')
+  const [cit,            setCit]          = useState('600')
+  const [cip,            setCip]          = useState('1.8')
+  const [sevType,        setSevType]      = useState(2)
+  const [profile,        setProfile]      = useState(3)
+  const [selectedDcId,   setSelectedDcId] = useState<number | null>(null)
+  const [state,          setState]        = useState<'idle'|'loading'|'ok'|'err'>('idle')
+  const [msg,            setMsg]          = useState('')
+
+  const { data: rawDcs } = useSWR<DesignCase[]>('/api/design-cases', fetcher, { refreshInterval: 60_000 })
+  const designCases: DesignCase[] = Array.isArray(rawDcs) ? rawDcs : []
+  const selectedDc = designCases.find(d => d.id === selectedDcId) ?? null
+
+  // Load active model from localStorage (set on dashboard)
+  useEffect(() => {
+    const saved = localStorage.getItem(ACTIVE_MODEL_KEY)
+    if (saved) setSelectedDcId(Number(saved))
+  }, [])
+
+  function handleDcChange(val: string) {
+    const id = val ? Number(val) : null
+    setSelectedDcId(id)
+    if (id != null) localStorage.setItem(ACTIVE_MODEL_KEY, String(id))
+    else localStorage.removeItem(ACTIVE_MODEL_KEY)
+  }
 
   const sev = SEVERITY_OPTIONS.find(o => o.value === sevType)!
 
@@ -54,6 +74,8 @@ function HourlyRunPanel() {
         type: 'hourly', cot: Number(cot), flow: Number(flow),
         dilution: Number(dilut), cit: Number(cit), cip: Number(cip),
         severity_type: sevType, flux_profile: profile,
+        project_name:   selectedDc?.project_name ?? null,
+        design_case_id: selectedDcId ?? null,
       }),
     })
     const json = await res.json()
@@ -72,7 +94,9 @@ function HourlyRunPanel() {
           <div className="text-left">
             <p className="text-sm font-semibold text-gray-900">Submit Hourly Run</p>
             <p className="text-xs text-gray-400 mt-0.5">
-              Patch exp.txt with new operating conditions — geometry from active Design Case
+              {selectedDc
+                ? <>Using model: <span className="font-medium text-gray-600">{selectedDc.name}</span></>
+                : 'Patch exp.txt with new operating conditions — select a Design Case model below'}
             </p>
           </div>
         </div>
@@ -85,8 +109,33 @@ function HourlyRunPanel() {
       {/* Expandable form */}
       {open && (
         <div className="mt-5 pt-5 border-t border-gray-100 space-y-5">
+          {/* Design Case model selector */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Model (Design Case)</p>
+            {designCases.length === 0 ? (
+              <div className="rounded-lg bg-amber-50 border border-amber-100 px-4 py-2.5 text-xs text-amber-700">
+                No design cases found. Build one using the Design Case wizard first.
+              </div>
+            ) : (
+              <select
+                value={selectedDcId ?? ''}
+                onChange={e => handleDcChange(e.target.value)}
+                className={inp}
+              >
+                <option value="">— use config default (template model) —</option>
+                {designCases.map(dc => (
+                  <option key={dc.id} value={dc.id}>
+                    {dc.name} ({dc.project_name})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
           <div className="rounded-lg bg-sky-50 border border-sky-100 px-4 py-2.5 text-xs text-sky-700">
-            Reads geometry and feedstock from the last Design Case on disk. Only <code className="font-mono bg-sky-100 px-1 rounded">exp.txt</code> is patched.
+            {selectedDc
+              ? <>Runs on project folder <code className="font-mono bg-sky-100 px-1 rounded">{selectedDc.project_name}</code>. Only <code className="font-mono bg-sky-100 px-1 rounded">exp.txt</code> is patched.</>
+              : <>No model selected — worker will use the <code className="font-mono bg-sky-100 px-1 rounded">project_name</code> from config. Only <code className="font-mono bg-sky-100 px-1 rounded">exp.txt</code> is patched.</>
+            }
           </div>
 
           <div className="grid grid-cols-2 gap-5">

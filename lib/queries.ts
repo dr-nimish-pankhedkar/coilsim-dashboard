@@ -140,15 +140,21 @@ export interface RunParams {
   coke_density?: number       // kg/m³, default 1600
 }
 
-export async function submitHourlyRun(p: RunParams): Promise<number> {
+export async function submitHourlyRun(
+  p: RunParams,
+  project_name?: string,
+  design_case_id?: number,
+): Promise<number> {
   const res = await pool.query<{ id: number }>(
     `INSERT INTO cs_py_int.simulation_tasks
        (status, task_type, cot_input, flow_input,
-        dilution_ratio, cit_input, cip_input, severity_type, flux_profile)
-     VALUES ('Pending', 'hourly', $1, $2, $3, $4, $5, $6, $7)
+        dilution_ratio, cit_input, cip_input, severity_type, flux_profile,
+        project_name, design_case_id)
+     VALUES ('Pending', 'hourly', $1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING id`,
     [p.cot, p.flow, p.dilution ?? 0.35, p.cit ?? 600, p.cip ?? 1.8,
-     p.severity_type ?? 1, p.flux_profile ?? 1]
+     p.severity_type ?? 2, p.flux_profile ?? 3,
+     project_name ?? null, design_case_id ?? null]
   )
   return res.rows[0].id
 }

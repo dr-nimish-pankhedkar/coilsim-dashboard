@@ -1,12 +1,66 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import useSWR from 'swr'
-import type { DashboardData } from '@/lib/types'
+import type { DashboardData, DesignCase } from '@/lib/types'
 import ProcessSchematic from '@/components/dashboard/ProcessSchematic'
 import ProductSlateChart from '@/components/dashboard/ProductSlateChart'
 import LengthwiseProfileChart from '@/components/dashboard/LengthwiseProfileChart'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
+
+const ACTIVE_MODEL_KEY = 'coilsim_active_design_case_id'
+
+function ActiveModelCard() {
+  const { data: rawDcs } = useSWR<DesignCase[]>('/api/design-cases', fetcher, { refreshInterval: 60_000 })
+  const designCases: DesignCase[] = Array.isArray(rawDcs) ? rawDcs : []
+
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+
+  // Load saved selection from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem(ACTIVE_MODEL_KEY)
+    if (saved) setSelectedId(Number(saved))
+  }, [])
+
+  function handleChange(val: string) {
+    const id = val ? Number(val) : null
+    setSelectedId(id)
+    if (id != null) localStorage.setItem(ACTIVE_MODEL_KEY, String(id))
+    else localStorage.removeItem(ACTIVE_MODEL_KEY)
+  }
+
+  const selected = designCases.find(d => d.id === selectedId)
+
+  return (
+    <div className="card flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <p className="label">Active Model</p>
+        {selected && (
+          <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">
+            ACTIVE
+          </span>
+        )}
+      </div>
+      <select
+        value={selectedId ?? ''}
+        onChange={e => handleChange(e.target.value)}
+        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
+      >
+        <option value="">— template / config default —</option>
+        {designCases.map(dc => (
+          <option key={dc.id} value={dc.id}>{dc.name}</option>
+        ))}
+      </select>
+      {selected && (
+        <p className="text-xs text-gray-400 font-mono truncate">{selected.project_name}</p>
+      )}
+      {!selected && designCases.length === 0 && (
+        <p className="text-xs text-amber-600">No design cases yet — build one in the wizard.</p>
+      )}
+    </div>
+  )
+}
 
 function KpiCard({ label, value, unit, accent }: {
   label: string; value: string; unit?: string; accent?: string
@@ -86,11 +140,12 @@ export default function DashboardPage() {
       </div>
 
       {/* KPI row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <KpiCard label="Run ID"  value={`#${task.id}`} />
         <StatusBadge status={task.status} />
         <KpiCard label="COT"     value={task.cot_input  != null ? task.cot_input.toFixed(1)  : '—'} unit="°C"   accent="#d32f2f" />
         <KpiCard label="HC Feed" value={task.flow_input != null ? task.flow_input.toFixed(0) : '—'} unit="kg/h" accent="#1976d2" />
+        <ActiveModelCard />
       </div>
 
       {/* Schematic + Profile side by side */}

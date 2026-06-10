@@ -32,7 +32,11 @@ export async function POST(req: NextRequest) {
     }
 
     if (type === 'hourly') {
-      const id = await submitHourlyRun(runParams)
+      const id = await submitHourlyRun(
+        runParams,
+        body.project_name ?? undefined,
+        body.design_case_id != null ? Number(body.design_case_id) : undefined,
+      )
       return NextResponse.json({ id })
     }
 
