@@ -9,13 +9,13 @@ const fetcher = (url: string) => fetch(url).then(r => r.json())
 // ── CoilSim constants ─────────────────────────────────────────────────────────
 
 const COIL_TYPES = [
-  { ncoil: 4,  name: 'W-coil',          passes: 4,  desc: 'Most common; 4-pass split coil',     icon: 'W' },
+  { ncoil: 2,  name: 'W-coil',          passes: 4,  desc: 'Most common; 4-pass split coil',     icon: 'W' },
   { ncoil: 3,  name: 'U-coil',          passes: 2,  desc: 'Short residence time, 2-pass',        icon: 'U' },
   { ncoil: 5,  name: 'SRT-I',           passes: 8,  desc: 'Lummus SRT-I, 8-pass',                icon: 'I' },
   { ncoil: 6,  name: 'SRT-II / III',    passes: 8,  desc: 'Lummus SRT-II/III variant',           icon: 'II' },
   { ncoil: 7,  name: 'SRT-IV',          passes: 8,  desc: 'Lummus SRT-IV',                       icon: 'IV' },
   { ncoil: 12, name: 'SRT-VI',          passes: 8,  desc: 'Lummus SRT-VI high-severity',         icon: 'VI' },
-  { ncoil: 2,  name: 'Millisecond',     passes: 2,  desc: 'Ultra-short residence time',          icon: 'ms' },
+  { ncoil: 4,  name: 'Millisecond',     passes: 2,  desc: 'Ultra-short residence time',          icon: 'ms' },
   { ncoil: 8,  name: 'Technip GK-I',   passes: 4,  desc: 'Technip GK series, 4-pass',           icon: 'GK' },
   { ncoil: 9,  name: 'Technip GK-VI',  passes: 4,  desc: 'Technip GK-VI high capacity',         icon: 'GK6'},
   { ncoil: 10, name: 'Linde Pyrocrack',passes: 4,  desc: 'Linde Pyrocrack 1-1/2-4',             icon: 'LC' },
@@ -93,7 +93,7 @@ const smallInp = 'w-full border border-gray-200 rounded px-2 py-1.5 text-xs focu
 // ── Leg default ───────────────────────────────────────────────────────────────
 interface LegRow { length: number; diameter: number; wall_thickness: number; bend_length: number; adiabatic: boolean }
 function defaultLeg(n: number): LegRow {
-  // Default dimensions from YSB_Geo_Operating reactor.txt (ncoil=2, 4-pass Millisecond)
+  // Default dimensions from YSB_Geo_Operating reactor.txt (ncoil=2, 4-pass W-coil)
   const lengths = [14.670, 13.250, 13.250, 13.695]
   const diams   = [0.090,  0.090,  0.100,  0.100]
   const bends   = [0.370,  0.510,  0.531,  0.370]
