@@ -156,33 +156,56 @@ export async function submitHourlyRun(p: RunParams): Promise<number> {
 export async function submitDesignCaseRun(
   coil_id: number, feed_id: number, project_name: string, p: RunParams
 ): Promise<number> {
-  const res = await pool.query<{ id: number }>(
-    `INSERT INTO cs_py_int.simulation_tasks
-       (status, task_type, coil_id, feed_id, cot_input, flow_input, project_name,
-        dilution_ratio, cit_input, cip_input, cop_input,
-        severity_type, sev_location, sev_location_pct,
-        pressure_sev_type, pressure_location, pressure_location_pct,
-        heat_flux_input_type, flux_profile,
-        run_length_sim, coke_model, coke_conduction, coke_density)
-     VALUES ('Pending', 'design_case',
-       $1,  $2,  $3,  $4,  $5,
-       $6,  $7,  $8,  $9,
-       $10, $11, $12,
-       $13, $14, $15,
-       $16, $17,
-       $18, $19, $20, $21)
-     RETURNING id`,
-    [
-      coil_id, feed_id, p.cot, p.flow, project_name,
-      p.dilution ?? 0.35, p.cit ?? 668, p.cip ?? 2.59, p.cop ?? 2.053,
-      p.severity_type ?? 2, p.sev_location ?? 'adiabatic_pct', p.sev_location_pct ?? 60,
-      p.pressure_sev_type ?? 'cop', p.pressure_location ?? 'adiabatic_pct', p.pressure_location_pct ?? 100,
-      p.heat_flux_input_type ?? 'net', p.flux_profile ?? 1,
-      p.run_length_sim ?? 0, p.coke_model ?? 'Plehiers',
-      p.coke_conduction ?? 0.0045, p.coke_density ?? 1600,
-    ]
-  )
-  return res.rows[0].id
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    // 1. Ensure a design_cases record exists for this project (upsert by project_name)
+    await client.query(
+      `INSERT INTO cs_py_int.design_cases (name, coil_id, feed_id, project_name)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (project_name) DO UPDATE
+         SET coil_id = EXCLUDED.coil_id,
+             feed_id = EXCLUDED.feed_id`,
+      [project_name, coil_id, feed_id, project_name]
+    )
+
+    // 2. Queue the simulation task
+    const res = await client.query<{ id: number }>(
+      `INSERT INTO cs_py_int.simulation_tasks
+         (status, task_type, coil_id, feed_id, cot_input, flow_input, project_name,
+          dilution_ratio, cit_input, cip_input, cop_input,
+          severity_type, sev_location, sev_location_pct,
+          pressure_sev_type, pressure_location, pressure_location_pct,
+          heat_flux_input_type, flux_profile,
+          run_length_sim, coke_model, coke_conduction, coke_density)
+       VALUES ('Pending', 'design_case',
+         $1,  $2,  $3,  $4,  $5,
+         $6,  $7,  $8,  $9,
+         $10, $11, $12,
+         $13, $14, $15,
+         $16, $17,
+         $18, $19, $20, $21)
+       RETURNING id`,
+      [
+        coil_id, feed_id, p.cot, p.flow, project_name,
+        p.dilution ?? 0.35, p.cit ?? 668, p.cip ?? 2.59, p.cop ?? 2.053,
+        p.severity_type ?? 2, p.sev_location ?? 'adiabatic_pct', p.sev_location_pct ?? 60,
+        p.pressure_sev_type ?? 'cop', p.pressure_location ?? 'adiabatic_pct', p.pressure_location_pct ?? 100,
+        p.heat_flux_input_type ?? 'net', p.flux_profile ?? 1,
+        p.run_length_sim ?? 0, p.coke_model ?? 'Plehiers',
+        p.coke_conduction ?? 0.0045, p.coke_density ?? 1600,
+      ]
+    )
+
+    await client.query('COMMIT')
+    return res.rows[0].id
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
 }
 
 // ── Design Cases ─────────────────────────────────────────────────────────────
