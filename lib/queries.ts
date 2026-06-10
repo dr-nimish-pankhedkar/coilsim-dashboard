@@ -161,7 +161,8 @@ export async function submitHourlyRun(
 }
 
 export async function submitDesignCaseRun(
-  coil_id: number, feed_id: number, project_name: string, p: RunParams
+  coil_id: number, feed_id: number, project_name: string,
+  design_case_name: string, p: RunParams
 ): Promise<number> {
   const client = await pool.connect()
   try {
@@ -174,7 +175,7 @@ export async function submitDesignCaseRun(
        ON CONFLICT (project_name) DO UPDATE
          SET coil_id = EXCLUDED.coil_id,
              feed_id = EXCLUDED.feed_id`,
-      [project_name, coil_id, feed_id, project_name]
+      [design_case_name, coil_id, feed_id, project_name]
     )
 
     // 2. Queue the simulation task

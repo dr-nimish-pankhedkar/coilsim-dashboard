@@ -42,11 +42,14 @@ export async function POST(req: NextRequest) {
     }
 
     if (type === 'design_case' || type === 'fresh') {
-      const { coil_id, feed_id, project_name } = body
+      const { coil_id, feed_id, project_name, design_case_name } = body
       if (!coil_id || !feed_id || !project_name) {
         return NextResponse.json({ error: 'Missing coil_id, feed_id, or project_name' }, { status: 400 })
       }
-      const id = await submitDesignCaseRun(Number(coil_id), Number(feed_id), project_name, runParams)
+      const id = await submitDesignCaseRun(
+        Number(coil_id), Number(feed_id), project_name,
+        design_case_name || project_name, runParams
+      )
       return NextResponse.json({ id })
     }
 

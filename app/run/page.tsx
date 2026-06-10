@@ -296,11 +296,6 @@ function DesignCaseWizard() {
   // ── Submit ───────────────────────────────────────────────────────────────
   const [submitState, setSubmitState] = useState<'idle'|'loading'|'ok'|'err'>('idle')
   const [submitMsg,   setSubmitMsg]   = useState('')
-  const [lastTaskId,  setLastTaskId]  = useState<number|null>(null)
-  const [lastCoilId,  setLastCoilId]  = useState<number|null>(null)
-  const [lastFeedId,  setLastFeedId]  = useState<number|null>(null)
-  const [dcSaveState, setDcSaveState] = useState<'idle'|'loading'|'ok'|'err'>('idle')
-  const [dcSaveMsg,   setDcSaveMsg]   = useState('')
 
   async function submit() {
     setSubmitState('loading'); setSubmitMsg('')
@@ -348,8 +343,6 @@ function DesignCaseWizard() {
         if (!feedRes.ok) { setSubmitState('err'); setSubmitMsg(`Feedstock error: ${feedJson.error ?? 'unknown'}`); return }
         coil_id = coilJson.id
         feed_id = feedJson.id
-        setLastCoilId(coil_id)
-        setLastFeedId(feed_id)
       }
 
       const runRes = await fetch('/api/run', {
@@ -374,31 +367,16 @@ function DesignCaseWizard() {
           coke_conduction: Number(cokeConduction),
           coke_density: Number(cokeDensity),
           project_name: projName,
+          design_case_name: dcName || projName,
         }),
       })
       const json = await runRes.json()
       if (!runRes.ok) { setSubmitState('err'); setSubmitMsg(json.error ?? 'Failed'); return }
       setSubmitState('ok')
-      setLastTaskId(json.id)
       setSubmitMsg(`Task #${json.id} queued. Worker will pick it up shortly.`)
     } catch {
       setSubmitState('err'); setSubmitMsg('Network error — check connection.')
     }
-  }
-
-  async function saveDesignCase() {
-    if (!lastTaskId || !dcName.trim()) return
-    setDcSaveState('loading')
-    // Resolve coil/feed IDs — use newly created IDs if user entered a new geometry
-    const coil_id = useMode === 'saved' ? Number(savedCoilId) : (lastCoilId ?? 0)
-    const feed_id = useMode === 'saved' ? Number(savedFeedId) : (lastFeedId ?? 0)
-    const res = await fetch('/api/design-cases', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: dcName, coil_id, feed_id, project_name: projName }),
-    })
-    const json = await res.json()
-    if (!res.ok) { setDcSaveState('err'); setDcSaveMsg(json.error ?? 'Failed'); return }
-    setDcSaveState('ok'); setDcSaveMsg(`Design case "${dcName}" saved (id #${json.id}).`)
   }
 
   // ── Step validation ──────────────────────────────────────────────────────
@@ -1202,32 +1180,17 @@ function DesignCaseWizard() {
             </div>
           )}
 
-          {/* Save as Design Case */}
           {submitState === 'ok' && (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 space-y-4">
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
               <div className="flex items-start gap-3">
                 <span className="text-emerald-500 text-xl">✓</span>
                 <div>
                   <p className="text-sm font-semibold text-emerald-800">{submitMsg}</p>
                   <p className="text-xs text-emerald-600 mt-1">
-                    Save this configuration as a named Design Case to use it as the baseline for Operating Case coke tuning.
+                    Design case saved. Select it as the active model on the dashboard to use it for hourly runs.
                   </p>
                 </div>
               </div>
-              {dcSaveState !== 'ok' ? (
-                <div className="flex gap-2">
-                  <input value={dcName} onChange={e => setDcName(e.target.value)}
-                    placeholder="Design case name" className={inp + ' flex-1'} />
-                  <button onClick={saveDesignCase}
-                    disabled={dcSaveState === 'loading' || !dcName.trim()}
-                    className="btn-primary whitespace-nowrap">
-                    {dcSaveState === 'loading' ? 'Saving…' : 'Save as Design Case'}
-                  </button>
-                </div>
-              ) : (
-                <p className="text-sm font-medium text-emerald-700">✓ {dcSaveMsg}</p>
-              )}
-              {dcSaveState === 'err' && <p className="text-xs text-red-500">{dcSaveMsg}</p>}
             </div>
           )}
 
