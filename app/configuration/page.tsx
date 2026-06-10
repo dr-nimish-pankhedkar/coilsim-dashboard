@@ -135,7 +135,7 @@ export default function ConfigurationPage() {
             />
             <button
               onClick={() => { if (dcPassword) setDcStatus('confirm') }}
-              disabled={!dcPassword || dcStatus === 'loading'}
+              disabled={!dcPassword}
               className="w-full rounded-lg border border-red-200 bg-red-50 text-red-600 text-sm font-medium py-2 hover:bg-red-100 transition-colors disabled:opacity-40"
             >
               Delete Dashboard Design Cases…
