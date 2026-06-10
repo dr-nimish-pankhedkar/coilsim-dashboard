@@ -412,7 +412,14 @@ function DesignCaseWizard() {
   }
 
   function next() { if (step < STEPS.length - 1) setStep(s => s + 1) }
-  function back() { if (step > 0) setStep(s => s - 1) }
+  function back() {
+    if (step > 0) {
+      setStep(s => s - 1)
+      // Reset submit state so the review page shows the Submit button again
+      setSubmitState('idle')
+      setSubmitMsg('')
+    }
+  }
 
   const sev = SEVERITY_OPTIONS.find(o => o.value === sevType) ?? SEVERITY_OPTIONS[0]
   const sevNeedsTarget = sevType !== 9  // Yield maximization has no target value
@@ -1177,19 +1184,21 @@ function DesignCaseWizard() {
             </div>
           </div>
 
-          {submitState === 'idle' && (
-            <button onClick={submit} className="btn-primary w-full text-base py-3">
-              🚀  Submit Design Case Simulation
-            </button>
+          {(submitState === 'idle' || submitState === 'err') && (
+            <div className="space-y-3">
+              {submitState === 'err' && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                  {submitMsg}
+                </div>
+              )}
+              <button onClick={submit} className="btn-primary w-full text-base py-3">
+                {submitState === 'err' ? '↺  Retry Submission' : '🚀  Submit Design Case Simulation'}
+              </button>
+            </div>
           )}
           {submitState === 'loading' && (
             <div className="flex items-center justify-center gap-2 py-4 text-sm text-gray-500">
               <span className="animate-spin">⏳</span> Submitting…
-            </div>
-          )}
-          {submitState === 'err' && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-              {submitMsg}
             </div>
           )}
 
