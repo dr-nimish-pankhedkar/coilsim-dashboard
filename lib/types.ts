@@ -55,8 +55,12 @@ export interface OperatingCoilRow {
 export interface ProfileDetail {
   task_id: number
   axial_position: number
-  tgas: number
-  mass_conversion: number
+  tgas: number | null
+  mass_conversion: number | null
+  velocity: number | null
+  pressure: number | null
+  heat_flux: number | null
+  coke_thickness: number | null
 }
 
 export interface YieldRecord {
