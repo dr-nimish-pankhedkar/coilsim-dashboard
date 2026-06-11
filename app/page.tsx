@@ -17,10 +17,19 @@ function ActiveModelCard() {
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
 
-  // Load saved selection from localStorage on mount
+  // Load from DB on mount, fall back to localStorage for instant paint
   useEffect(() => {
-    const saved = localStorage.getItem(ACTIVE_MODEL_KEY)
-    if (saved) setSelectedId(Number(saved))
+    const local = localStorage.getItem(ACTIVE_MODEL_KEY)
+    if (local) setSelectedId(Number(local))
+    fetch('/api/settings/active-model')
+      .then(r => r.json())
+      .then(d => {
+        if (d.active_design_case_id != null) {
+          setSelectedId(d.active_design_case_id)
+          localStorage.setItem(ACTIVE_MODEL_KEY, String(d.active_design_case_id))
+        }
+      })
+      .catch(() => {})
   }, [])
 
   function handleChange(val: string) {
@@ -28,6 +37,11 @@ function ActiveModelCard() {
     setSelectedId(id)
     if (id != null) localStorage.setItem(ACTIVE_MODEL_KEY, String(id))
     else localStorage.removeItem(ACTIVE_MODEL_KEY)
+    // Persist to DB so worker picks it up for tasks without an explicit project_name
+    fetch('/api/settings/active-model', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    }).catch(() => {})
   }
 
   const selected = designCases.find(d => d.id === selectedId)

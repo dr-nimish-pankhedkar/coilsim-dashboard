@@ -50,10 +50,19 @@ function HourlyRunPanel() {
   const designCases: DesignCase[] = Array.isArray(rawDcs) ? rawDcs : []
   const selectedDc = designCases.find(d => d.id === selectedDcId) ?? null
 
-  // Load active model from localStorage (set on dashboard)
+  // Load from DB on mount, fall back to localStorage for instant paint
   useEffect(() => {
-    const saved = localStorage.getItem(ACTIVE_MODEL_KEY)
-    if (saved) setSelectedDcId(Number(saved))
+    const local = localStorage.getItem(ACTIVE_MODEL_KEY)
+    if (local) setSelectedDcId(Number(local))
+    fetch('/api/settings/active-model')
+      .then(r => r.json())
+      .then(d => {
+        if (d.active_design_case_id != null) {
+          setSelectedDcId(d.active_design_case_id)
+          localStorage.setItem(ACTIVE_MODEL_KEY, String(d.active_design_case_id))
+        }
+      })
+      .catch(() => {})
   }, [])
 
   function handleDcChange(val: string) {
@@ -61,6 +70,10 @@ function HourlyRunPanel() {
     setSelectedDcId(id)
     if (id != null) localStorage.setItem(ACTIVE_MODEL_KEY, String(id))
     else localStorage.removeItem(ACTIVE_MODEL_KEY)
+    fetch('/api/settings/active-model', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    }).catch(() => {})
   }
 
   const sev = SEVERITY_OPTIONS.find(o => o.value === sevType)!
