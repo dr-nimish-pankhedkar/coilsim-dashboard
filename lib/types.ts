@@ -107,3 +107,15 @@ export interface FeedstockDefinition {
   product_ids: number[]
   created_at: string
 }
+
+export interface ChannelConfig {
+  param_key: string
+  channel_type: 'input' | 'output'
+  param_label: string
+  unit: string | null
+  enabled: boolean
+  source: 'dcs' | 'static' | null
+  static_value: number | null
+  exp_row: number | null
+  display_order: number
+}

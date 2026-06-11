@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
-import type { SimulationTask, YieldRecord, ProfileDetail } from '@/lib/types'
+import type { SimulationTask, YieldRecord, ProfileDetail, ChannelConfig } from '@/lib/types'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
@@ -160,8 +160,34 @@ function YieldsTab() {
   )
 }
 
+const PROFILE_COLS: Array<{
+  key: keyof ProfileDetail
+  label: string
+  fmt: (v: number | null) => string
+}> = [
+  { key: 'axial_position',  label: 'Axial Pos [m]',  fmt: v => v != null ? v.toFixed(2)  : '—' },
+  { key: 'tgas',            label: 'T Gas (°C)',      fmt: v => v != null ? v.toFixed(1)  : '—' },
+  { key: 'mass_conversion', label: 'Conversion (%)',  fmt: v => v != null ? v.toFixed(2)  : '—' },
+  { key: 'velocity',        label: 'Velocity (m/s)',  fmt: v => v != null ? v.toFixed(2)  : '—' },
+  { key: 'pressure',        label: 'Pressure (atm)',  fmt: v => v != null ? v.toFixed(4)  : '—' },
+  { key: 'heat_flux',       label: 'Heat Flux (kW/m²)', fmt: v => v != null ? v.toFixed(1) : '—' },
+  { key: 'coke_thickness',  label: 'Coke (m)',        fmt: v => v != null ? v.toFixed(6)  : '—' },
+]
+
 function ProfilesTab() {
-  const { data, isLoading } = useSWR<ProfileDetail[]>('/api/logs/profiles', fetcher)
+  const { data, isLoading }       = useSWR<ProfileDetail[]>('/api/logs/profiles', fetcher)
+  const { data: rawChannels }     = useSWR<ChannelConfig[]>('/api/admin/channel-config', fetcher)
+
+  const enabledOutputKeys = new Set<string>(
+    Array.isArray(rawChannels)
+      ? rawChannels.filter(c => c.channel_type === 'output' && c.enabled).map(c => c.param_key)
+      : ['tgas', 'mass_conversion']
+  )
+
+  const visibleCols = PROFILE_COLS.filter(c =>
+    c.key === 'axial_position' || enabledOutputKeys.has(c.key as string)
+  )
+
   if (isLoading) return <p className="text-sm text-gray-400 py-8 text-center">Loading…</p>
   if (!data?.length) return <p className="text-sm text-gray-400 py-8 text-center">No profile data found.</p>
   return (
@@ -169,8 +195,9 @@ function ProfilesTab() {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-100">
-            {['Run ID', 'Axial Pos [m]', 'T Gas (°C)', 'Conversion (%)'].map(h => (
-              <th key={h} className="text-left label py-3 pr-6">{h}</th>
+            <th className="text-left label py-3 pr-6">Run ID</th>
+            {visibleCols.map(c => (
+              <th key={c.key as string} className="text-left label py-3 pr-6 whitespace-nowrap">{c.label}</th>
             ))}
           </tr>
         </thead>
@@ -178,9 +205,11 @@ function ProfilesTab() {
           {data.map((p, i) => (
             <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
               <td className="py-2 pr-6 font-mono text-gray-500">#{p.task_id}</td>
-              <td className="py-2 pr-6 tabular-nums">{p.axial_position.toFixed(2)}</td>
-              <td className="py-2 pr-6 tabular-nums">{p.tgas.toFixed(1)}</td>
-              <td className="py-2 pr-6 tabular-nums">{p.mass_conversion.toFixed(2)}</td>
+              {visibleCols.map(c => (
+                <td key={c.key as string} className="py-2 pr-6 tabular-nums">
+                  {c.fmt(p[c.key] as number | null)}
+                </td>
+              ))}
             </tr>
           ))}
         </tbody>

@@ -5,7 +5,16 @@ import useSWR from 'swr'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
-import type { OperatingCoilRow, DesignCase } from '@/lib/types'
+import type { OperatingCoilRow, DesignCase, ChannelConfig } from '@/lib/types'
+
+const EXTRA_DCS_KEYS = ['steam_dilution', 'cop', 'cit', 'cip'] as const
+type ExtraDcsKey = typeof EXTRA_DCS_KEYS[number]
+const EXTRA_DCS_FIELD: Record<ExtraDcsKey, { label: string; placeholder: string; step: string }> = {
+  steam_dilution: { label: 'Steam Dilution (kg/kg HC)', placeholder: 'e.g. 0.35', step: '0.001' },
+  cop:            { label: 'Coil Outlet Pressure (atm)', placeholder: 'e.g. 2.053', step: '0.001' },
+  cit:            { label: 'Coil Inlet Temperature (°C)', placeholder: 'e.g. 668', step: '0.1'  },
+  cip:            { label: 'Coil Inlet Pressure (atm)', placeholder: 'e.g. 2.59', step: '0.001' },
+}
 
 const ACTIVE_MODEL_KEY = 'coilsim_active_design_case_id'
 
@@ -19,13 +28,22 @@ const inp = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ou
 function HourlyRunPanel() {
   const [cot,            setCot]          = useState('')
   const [flow,           setFlow]         = useState('')
+  const [extras,         setExtras]       = useState<Record<string, string>>({})
   const [selectedDcId,   setSelectedDcId] = useState<number | null>(null)
   const [state,          setState]        = useState<'idle'|'loading'|'ok'|'err'>('idle')
   const [msg,            setMsg]          = useState('')
 
-  const { data: rawDcs } = useSWR<DesignCase[]>('/api/design-cases', fetcher, { refreshInterval: 60_000 })
+  const { data: rawDcs }      = useSWR<DesignCase[]>('/api/design-cases', fetcher, { refreshInterval: 60_000 })
+  const { data: rawChannels } = useSWR<ChannelConfig[]>('/api/admin/channel-config', fetcher, { refreshInterval: 120_000 })
+  const channels: ChannelConfig[] = Array.isArray(rawChannels) ? rawChannels : []
   const designCases: DesignCase[] = Array.isArray(rawDcs) ? rawDcs : []
   const selectedDc = designCases.find(d => d.id === selectedDcId) ?? null
+
+  // Extra params configured as DCS — user must enter each run
+  const extraDcsKeys = EXTRA_DCS_KEYS.filter(k => {
+    const ch = channels.find(c => c.param_key === k)
+    return ch?.source === 'dcs' && ch?.enabled
+  })
 
   // Load from DB on mount, fall back to localStorage for instant paint
   useEffect(() => {
@@ -55,15 +73,23 @@ function HourlyRunPanel() {
 
 
   async function submit() {
-    if (!cot || !flow) { setMsg('Target value and Flow rate are required.'); setState('err'); return }
+    if (!cot || !flow) { setMsg('COT and HC Flow are required.'); setState('err'); return }
+    for (const k of extraDcsKeys) {
+      if (!extras[k]) { setMsg(`${EXTRA_DCS_FIELD[k].label} is required (set to DCS in Configuration).`); setState('err'); return }
+    }
     setState('loading')
+    const body: Record<string, any> = {
+      type: 'hourly', cot: Number(cot), flow: Number(flow),
+      project_name:   selectedDc?.project_name ?? null,
+      design_case_id: selectedDcId ?? null,
+    }
+    for (const k of extraDcsKeys) {
+      const map: Record<ExtraDcsKey, string> = { steam_dilution: 'dilution', cop: 'cop', cit: 'cit', cip: 'cip' }
+      body[map[k]] = Number(extras[k])
+    }
     const res = await fetch('/api/run', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'hourly', cot: Number(cot), flow: Number(flow),
-        project_name:   selectedDc?.project_name ?? null,
-        design_case_id: selectedDcId ?? null,
-      }),
+      body: JSON.stringify(body),
     })
     const json = await res.json()
     if (!res.ok) { setState('err'); setMsg(json.error ?? 'Failed'); return }
@@ -120,6 +146,23 @@ function HourlyRunPanel() {
             placeholder="e.g. 1298"
             className={inp} />
         </div>
+
+        {extraDcsKeys.map(k => (
+          <div key={k}>
+            <label className={lbl}>
+              {EXTRA_DCS_FIELD[k].label}
+              <span className="ml-1.5 text-[9px] font-semibold uppercase tracking-widest text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded-full">DCS</span>
+            </label>
+            <input
+              type="number"
+              step={EXTRA_DCS_FIELD[k].step}
+              value={extras[k] ?? ''}
+              onChange={e => { setExtras(prev => ({ ...prev, [k]: e.target.value })); setState('idle') }}
+              placeholder={EXTRA_DCS_FIELD[k].placeholder}
+              className={inp}
+            />
+          </div>
+        ))}
 
       </div>
 

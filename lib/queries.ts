@@ -149,11 +149,15 @@ export async function submitHourlyRun(
   const res = await pool.query<{ id: number }>(
     `INSERT INTO cs_py_int.simulation_tasks
        (status, task_type, cot_input, flow_input,
-        dilution_ratio, cit_input, cip_input, severity_type, flux_profile,
+        dilution_ratio, cit_input, cip_input, cop_input, severity_type, flux_profile,
         project_name, design_case_id)
-     VALUES ('Pending', 'hourly', $1, $2, $3, $4, $5, $6, $7, $8, $9)
+     VALUES ('Pending', 'hourly', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      RETURNING id`,
-    [p.cot, p.flow, p.dilution ?? 0.35, p.cit ?? 600, p.cip ?? 1.8,
+    [p.cot, p.flow,
+     p.dilution   != null ? p.dilution   : null,
+     p.cit        != null ? p.cit        : null,
+     p.cip        != null ? p.cip        : null,
+     p.cop        != null ? p.cop        : null,
      p.severity_type ?? 2, p.flux_profile ?? 3,
      project_name ?? null, design_case_id ?? null]
   )
