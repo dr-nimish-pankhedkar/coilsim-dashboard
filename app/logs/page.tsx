@@ -40,7 +40,7 @@ function TypeBadge({ type }: { type: string | null }) {
 
 function fmt(d: string | null) {
   if (!d) return '—'
-  const utc = d.endsWith('Z') || d.includes('+') ? d : d + 'Z'
+  const utc = d.includes('+') || d.endsWith('Z') ? d : d.replace(' ', 'T') + 'Z'
   return new Date(utc).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 

@@ -131,7 +131,7 @@ export default function DashboardPage() {
 
   const { task, profiles, yields } = data
   const _tsRaw = task.completed_at ?? ''
-  const _tsUtc = _tsRaw.endsWith('Z') || _tsRaw.includes('+') ? _tsRaw : _tsRaw + 'Z'
+  const _tsUtc = _tsRaw.includes('+') || _tsRaw.endsWith('Z') ? _tsRaw : _tsRaw.replace(' ', 'T') + 'Z'
   const ts = task.completed_at
     ? new Date(_tsUtc).toLocaleString('en-GB', {
         day: '2-digit', month: 'short', year: 'numeric',
