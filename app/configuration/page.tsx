@@ -15,6 +15,7 @@ function ChannelConfigCard() {
   const [local, setLocal] = useState<Record<string, Partial<ChannelConfig>>>({})
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'ok' | 'err'>('idle')
   const [tab, setTab] = useState<'inputs' | 'outputs'>('inputs')
+  const [password, setPassword] = useState('')
 
   if (isLoading) return <p className="text-sm text-gray-400">Loading…</p>
   if (!data || (data as any).error) return (
@@ -36,6 +37,7 @@ function ChannelConfigCard() {
   }
 
   async function save() {
+    if (!password) { setSaveStatus('err'); return }
     setSaveStatus('saving')
     const payload = [...inputs, ...outputs].map(ch => ({
       param_key:    ch.param_key,
@@ -45,12 +47,13 @@ function ChannelConfigCard() {
     }))
     const res = await fetch('/api/admin/channel-config', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
       body: JSON.stringify(payload),
     })
     if (res.ok) {
       setSaveStatus('ok')
       setLocal({})
+      setPassword('')
       await mutate()
       setTimeout(() => setSaveStatus('idle'), 3000)
     } else {
@@ -63,24 +66,15 @@ function ChannelConfigCard() {
 
   return (
     <div className="card space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="label">Channel Configuration</p>
-          <p className="text-sm text-gray-400 mt-0.5">
-            Configure which inputs come from the DCS or use a fixed static value, and which output columns to display.
-          </p>
-        </div>
-        <button
-          onClick={save}
-          disabled={!isDirty || saveStatus === 'saving'}
-          className="btn-primary text-sm disabled:opacity-40"
-        >
-          {saveStatus === 'saving' ? 'Saving…' : 'Save Changes'}
-        </button>
+      <div>
+        <p className="label">Channel Configuration</p>
+        <p className="text-sm text-gray-400 mt-0.5">
+          Configure which inputs come from the DCS or use a fixed static value, and which output columns to display.
+        </p>
       </div>
 
       {saveStatus === 'ok'  && <p className="text-sm text-emerald-600">✓ Saved.</p>}
-      {saveStatus === 'err' && <p className="text-sm text-red-500">Save failed.</p>}
+      {saveStatus === 'err' && <p className="text-sm text-red-500">{password ? 'Save failed — check password.' : 'Enter admin password to save.'}</p>}
 
       {/* Tab bar */}
       <div className="flex gap-6 border-b border-gray-100">
@@ -187,6 +181,24 @@ function ChannelConfigCard() {
           })}
         </div>
       )}
+
+      {/* Password + Save */}
+      <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
+        <input
+          type="password"
+          value={password}
+          onChange={e => { setPassword(e.target.value); setSaveStatus('idle') }}
+          placeholder="Admin password"
+          className="w-48 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+        />
+        <button
+          onClick={save}
+          disabled={!isDirty || !password || saveStatus === 'saving'}
+          className="btn-primary text-sm disabled:opacity-40"
+        >
+          {saveStatus === 'saving' ? 'Saving…' : 'Save Changes'}
+        </button>
+      </div>
     </div>
   )
 }
@@ -252,29 +264,6 @@ export default function ConfigurationPage() {
 
       {/* Channel Configuration */}
       <ChannelConfigCard />
-
-      {/* Input mapping — static reference */}
-      <div className="card space-y-4">
-        <p className="label">Input Assignment — exp.txt</p>
-        <p className="text-sm text-gray-500">
-          Maps PostgreSQL columns to CoilSim 1D input file rows.
-        </p>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-gray-50 rounded-lg p-4">
-            <p className="label mb-1">Row 3</p>
-            <p className="text-sm font-medium text-gray-900">COT</p>
-            <p className="text-xs text-gray-400 mt-0.5">← cot_input column</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-4">
-            <p className="label mb-1">Row 9</p>
-            <p className="text-sm font-medium text-gray-900">HC Flow</p>
-            <p className="text-xs text-gray-400 mt-0.5">← flow_input column</p>
-          </div>
-        </div>
-        <p className="text-xs text-gray-400">
-          NULL inputs preserve existing exp.txt values on the worker side.
-        </p>
-      </div>
 
       {/* Admin actions */}
       <div className="card space-y-4">

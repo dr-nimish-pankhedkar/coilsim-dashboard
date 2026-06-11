@@ -17,6 +17,10 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const token = (req.headers.get('Authorization') ?? '').replace('Bearer ', '')
+  if (!process.env.ADMIN_PASSWORD || token !== process.env.ADMIN_PASSWORD) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   try {
     const body = await req.json()
     const channels: Array<{
