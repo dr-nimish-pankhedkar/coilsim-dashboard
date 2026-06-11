@@ -45,7 +45,16 @@ function fmt(d: string | null) {
 }
 
 function TaskSummaryTab() {
-  const { data, isLoading, error } = useSWR<SimulationTask[]>('/api/logs/tasks', fetcher)
+  const { data, isLoading, error, mutate } = useSWR<SimulationTask[]>('/api/logs/tasks', fetcher)
+  const [deleting, setDeleting] = useState<number | null>(null)
+
+  async function deleteTask(id: number) {
+    setDeleting(id)
+    await fetch(`/api/logs/tasks/${id}`, { method: 'DELETE' })
+    await mutate()
+    setDeleting(null)
+  }
+
   if (isLoading) return <p className="text-sm text-gray-400 py-8 text-center">Loading…</p>
   if (error || (data as any)?.error) return <p className="text-sm text-red-400 py-8 text-center">Database connection error — check firewall / env vars.</p>
   if (!data?.length) return <p className="text-sm text-gray-400 py-8 text-center">No tasks found.</p>
@@ -54,7 +63,7 @@ function TaskSummaryTab() {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-100">
-            {['ID', 'Type', 'Status', 'Project', 'Created', 'Completed', 'COT (°C)', 'Feed (kg/h)'].map(h => (
+            {['ID', 'Type', 'Status', 'Project', 'Created', 'Completed', 'COT (°C)', 'Feed (kg/h)', ''].map(h => (
               <th key={h} className="text-left label py-3 pr-5 whitespace-nowrap">{h}</th>
             ))}
           </tr>
@@ -71,10 +80,22 @@ function TaskSummaryTab() {
                 <td className="py-2.5 pr-5 text-gray-500 whitespace-nowrap">{fmt(t.completed_at)}</td>
                 <td className="py-2.5 pr-5 tabular-nums">{t.cot_input?.toFixed(1) ?? '—'}</td>
                 <td className="py-2.5 pr-5 tabular-nums">{t.flow_input?.toFixed(0) ?? '—'}</td>
+                <td className="py-2.5">
+                  {(t.status === 'Error' || t.status === 'Failed') && (
+                    <button
+                      onClick={() => deleteTask(t.id)}
+                      disabled={deleting === t.id}
+                      className="text-xs text-red-400 hover:text-red-600 disabled:opacity-40 transition-colors px-1"
+                      title="Delete this failed task"
+                    >
+                      {deleting === t.id ? '…' : '✕'}
+                    </button>
+                  )}
+                </td>
               </tr>
               {(t.status === 'Error' || t.status === 'Failed') && t.error_message && (
                 <tr key={`${t.id}-err`} className="border-b border-red-50 bg-red-50/40">
-                  <td colSpan={8} className="px-3 py-2">
+                  <td colSpan={9} className="px-3 py-2">
                     <p className="text-xs text-red-700 font-mono break-all">
                       <span className="font-semibold not-italic font-sans mr-2">Error:</span>
                       {t.error_message}
