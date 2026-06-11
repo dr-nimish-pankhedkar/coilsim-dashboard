@@ -9,7 +9,7 @@ export async function GET() {
     if (!hb) return NextResponse.json({ alive: false, worker_name: null, last_pulse: null, status_message: null, current_task_id: null })
 
     // pg returns timestamp columns as Date objects — use directly
-    const pulse = hb.last_pulse instanceof Date ? hb.last_pulse : new Date(hb.last_pulse as any)
+    const pulse = new Date(hb.last_pulse as any)
     const ageMs = Date.now() - pulse.getTime()
     const alive = ageMs < 2 * 60 * 1000  // dead if pulse older than 2 min
 
