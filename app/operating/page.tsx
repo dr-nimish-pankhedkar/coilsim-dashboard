@@ -34,7 +34,6 @@ const FLUX_PROFILES = [
 
 // ── Hourly Run panel ──────────────────────────────────────────────────────────
 function HourlyRunPanel() {
-  const [open,           setOpen]         = useState(false)
   const [cot,            setCot]          = useState('')
   const [flow,           setFlow]         = useState('')
   const [dilut,          setDilut]        = useState('0.35')
@@ -97,119 +96,105 @@ function HourlyRunPanel() {
     setTimeout(() => { setState('idle'); setMsg('') }, 4000)
   }
 
+  const lbl = 'block text-xs font-medium text-gray-600 mb-1'
+
   return (
-    <div className="card">
-      {/* Header — always visible */}
-      <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between group">
-        <div className="flex items-center gap-3">
-          <span className="text-base">⏱</span>
-          <div className="text-left">
-            <p className="text-sm font-semibold text-gray-900">Submit Hourly Run</p>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {selectedDc
-                ? <>Using model: <span className="font-medium text-gray-600">{selectedDc.name}</span></>
-                : 'Patch exp.txt with new operating conditions — select a Design Case model below'}
-            </p>
+    <div className="card space-y-6">
+      {/* Header */}
+      <div>
+        <p className="text-sm font-semibold text-gray-900">Hourly Run</p>
+        <p className="text-xs text-gray-400 mt-0.5">Submit operating conditions to run a simulation</p>
+      </div>
+
+      {/* Furnace model */}
+      <div>
+        <label className={lbl}>Furnace Model</label>
+        {designCases.length === 0 ? (
+          <div className="rounded-lg bg-amber-50 border border-amber-100 px-4 py-2.5 text-xs text-amber-700">
+            No design cases found — build one in the Design Case wizard first.
           </div>
+        ) : (
+          <select value={selectedDcId ?? ''} onChange={e => handleDcChange(e.target.value)} className={inp}>
+            <option value="">— use default model —</option>
+            {designCases.map(dc => (
+              <option key={dc.id} value={dc.id}>{dc.name}</option>
+            ))}
+          </select>
+        )}
+        {selectedDc && (
+          <p className="text-xs text-gray-400 mt-1">
+            Model: <span className="font-medium text-gray-600">{selectedDc.name}</span>
+          </p>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+
+        {/* Severity */}
+        <div>
+          <label className={lbl}>Severity Type</label>
+          <select value={sevType} onChange={e => setSevType(Number(e.target.value))} className={inp}>
+            {SEVERITY_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
         </div>
-        <svg className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
-          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
 
-      {/* Expandable form */}
-      {open && (
-        <div className="mt-5 pt-5 border-t border-gray-100 space-y-5">
-          {/* Design Case model selector */}
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Model (Design Case)</p>
-            {designCases.length === 0 ? (
-              <div className="rounded-lg bg-amber-50 border border-amber-100 px-4 py-2.5 text-xs text-amber-700">
-                No design cases found. Build one using the Design Case wizard first.
-              </div>
-            ) : (
-              <select
-                value={selectedDcId ?? ''}
-                onChange={e => handleDcChange(e.target.value)}
-                className={inp}
-              >
-                <option value="">— use config default (template model) —</option>
-                {designCases.map(dc => (
-                  <option key={dc.id} value={dc.id}>
-                    {dc.name} ({dc.project_name})
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-          <div className="rounded-lg bg-sky-50 border border-sky-100 px-4 py-2.5 text-xs text-sky-700">
-            {selectedDc
-              ? <>Runs on project folder <code className="font-mono bg-sky-100 px-1 rounded">{selectedDc.project_name}</code>. Only <code className="font-mono bg-sky-100 px-1 rounded">exp.txt</code> is patched.</>
-              : <>No model selected — worker will use the <code className="font-mono bg-sky-100 px-1 rounded">project_name</code> from config. Only <code className="font-mono bg-sky-100 px-1 rounded">exp.txt</code> is patched.</>
-            }
-          </div>
-
-          <div className="grid grid-cols-2 gap-5">
-            {/* Left column */}
-            <div className="space-y-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Severity Target</p>
-                <div className="space-y-2">
-                  <select value={sevType} onChange={e => setSevType(Number(e.target.value))} className={inp}>
-                    {SEVERITY_OPTIONS.map(o => (
-                      <option key={o.value} value={o.value}>{o.label} ({o.unit})</option>
-                    ))}
-                  </select>
-                  <input type="number" value={cot}
-                    onChange={e => { setCot(e.target.value); setState('idle') }}
-                    placeholder={`${sev.desc} — ${sev.placeholder} ${sev.unit}`}
-                    className={inp} />
-                </div>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Flow & Steam</p>
-                <div className="space-y-2">
-                  <input type="number" value={flow}
-                    onChange={e => { setFlow(e.target.value); setState('idle') }}
-                    placeholder="HC flow — 1298 kg/h per tube" className={inp} />
-                  <input type="number" step="0.01" value={dilut}
-                    onChange={e => setDilut(e.target.value)}
-                    placeholder="Steam dilution — 0.35 kg/kg" className={inp} />
-                </div>
-              </div>
-            </div>
-
-            {/* Right column */}
-            <div className="space-y-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Inlet Conditions</p>
-                <div className="space-y-2">
-                  <input type="number" value={cit} onChange={e => setCit(e.target.value)}
-                    placeholder="CIT — 600 °C" className={inp} />
-                  <input type="number" step="0.1" value={cip} onChange={e => setCip(e.target.value)}
-                    placeholder="CIP — 1.8 atm" className={inp} />
-                </div>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Heat Flux Profile</p>
-                <select value={profile} onChange={e => setProfile(Number(e.target.value))} className={inp}>
-                  {FLUX_PROFILES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4 pt-2">
-            <button onClick={submit} disabled={state === 'loading'} className="btn-primary">
-              {state === 'loading' ? 'Submitting…' : 'Queue Hourly Run →'}
-            </button>
-            {state === 'ok'  && <p className="text-sm text-emerald-600 font-medium">✓ {msg}</p>}
-            {state === 'err' && <p className="text-sm text-red-500">{msg}</p>}
-          </div>
+        <div>
+          <label className={lbl}>{sev.label} Target ({sev.unit})</label>
+          <input type="number" value={cot}
+            onChange={e => { setCot(e.target.value); setState('idle') }}
+            placeholder={sev.placeholder}
+            className={inp} />
         </div>
-      )}
+
+        {/* Feed */}
+        <div>
+          <label className={lbl}>HC Feed Flow (kg/h per tube)</label>
+          <input type="number" value={flow}
+            onChange={e => { setFlow(e.target.value); setState('idle') }}
+            placeholder="e.g. 1298"
+            className={inp} />
+        </div>
+
+        <div>
+          <label className={lbl}>Steam / HC Dilution (kg/kg)</label>
+          <input type="number" step="0.01" value={dilut}
+            onChange={e => setDilut(e.target.value)}
+            placeholder="e.g. 0.35"
+            className={inp} />
+        </div>
+
+        {/* Inlet */}
+        <div>
+          <label className={lbl}>Coil Inlet Temperature — CIT (°C)</label>
+          <input type="number" value={cit} onChange={e => setCit(e.target.value)}
+            placeholder="e.g. 600" className={inp} />
+        </div>
+
+        <div>
+          <label className={lbl}>Coil Inlet Pressure — CIP (atm)</label>
+          <input type="number" step="0.1" value={cip} onChange={e => setCip(e.target.value)}
+            placeholder="e.g. 1.8" className={inp} />
+        </div>
+
+        {/* Flux */}
+        <div className="col-span-2">
+          <label className={lbl}>Heat Flux Profile</label>
+          <select value={profile} onChange={e => setProfile(Number(e.target.value))} className={inp}>
+            {FLUX_PROFILES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+          </select>
+        </div>
+
+      </div>
+
+      <div className="flex items-center gap-4 pt-1">
+        <button onClick={submit} disabled={state === 'loading'} className="btn-primary">
+          {state === 'loading' ? 'Submitting…' : 'Queue Run →'}
+        </button>
+        {state === 'ok'  && <p className="text-sm text-emerald-600 font-medium">✓ {msg}</p>}
+        {state === 'err' && <p className="text-sm text-red-500">{msg}</p>}
+      </div>
     </div>
   )
 }
