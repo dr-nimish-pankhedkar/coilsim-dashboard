@@ -69,7 +69,7 @@ export default function WorkerBadge() {
       {/* Last pulse age */}
       {data?.last_pulse && (
         <p className="text-[11px] text-gray-400 pl-4">
-          {alive ? `Pulse: ${new Date(data.last_pulse).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : `Last seen: ${formatAge(data.age_seconds)}`}
+          {`Pulse: ${formatAge(data.age_seconds)}`}
         </p>
       )}
 
