@@ -14,33 +14,11 @@ const fetcher = (url: string) => fetch(url).then(r => r.json())
 // ── Shared styles ─────────────────────────────────────────────────────────────
 const inp = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white'
 
-// ── Severity options (mirrors run page) ───────────────────────────────────────
-const SEVERITY_OPTIONS = [
-  { value: 2,  label: 'COT',               unit: '°C',   placeholder: '837', desc: 'Coil Outlet Temperature' },
-  { value: 3,  label: 'P/E ratio',         unit: '—',    placeholder: '0.42', desc: 'Propylene / Ethylene' },
-  { value: 4,  label: 'M/P ratio',         unit: '—',    placeholder: '0.35', desc: 'Methane / Propylene' },
-  { value: 5,  label: 'Ethane conversion', unit: 'frac', placeholder: '0.65', desc: 'Mass conversion fraction' },
-  { value: 6,  label: 'Propane conversion',unit: 'frac', placeholder: '0.92', desc: 'Mass conversion fraction' },
-  { value: 7,  label: 'n-Butane conv.',    unit: 'frac', placeholder: '0.95', desc: 'Mass conversion fraction' },
-  { value: 11, label: 'Ethylene prod.',    unit: 'kg/h', placeholder: '500',  desc: 'Ethylene production rate' },
-]
-
-const FLUX_PROFILES = [
-  { value: 3, label: 'Uniform' },
-  { value: 1, label: 'Linear' },
-  { value: 2, label: 'Sinusoidal' },
-  { value: 5, label: 'Long flame' },
-]
 
 // ── Hourly Run panel ──────────────────────────────────────────────────────────
 function HourlyRunPanel() {
   const [cot,            setCot]          = useState('')
   const [flow,           setFlow]         = useState('')
-  const [dilut,          setDilut]        = useState('0.35')
-  const [cit,            setCit]          = useState('600')
-  const [cip,            setCip]          = useState('1.8')
-  const [sevType,        setSevType]      = useState(2)
-  const [profile,        setProfile]      = useState(3)
   const [selectedDcId,   setSelectedDcId] = useState<number | null>(null)
   const [state,          setState]        = useState<'idle'|'loading'|'ok'|'err'>('idle')
   const [msg,            setMsg]          = useState('')
@@ -75,7 +53,6 @@ function HourlyRunPanel() {
     }).catch(() => {})
   }
 
-  const sev = SEVERITY_OPTIONS.find(o => o.value === sevType)!
 
   async function submit() {
     if (!cot || !flow) { setMsg('Target value and Flow rate are required.'); setState('err'); return }
@@ -84,8 +61,6 @@ function HourlyRunPanel() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         type: 'hourly', cot: Number(cot), flow: Number(flow),
-        dilution: Number(dilut), cit: Number(cit), cip: Number(cip),
-        severity_type: sevType, flux_profile: profile,
         project_name:   selectedDc?.project_name ?? null,
         design_case_id: selectedDcId ?? null,
       }),
@@ -130,60 +105,20 @@ function HourlyRunPanel() {
 
       <div className="grid grid-cols-2 gap-x-6 gap-y-4">
 
-        {/* Severity */}
         <div>
-          <label className={lbl}>Severity Type</label>
-          <select value={sevType} onChange={e => setSevType(Number(e.target.value))} className={inp}>
-            {SEVERITY_OPTIONS.map(o => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className={lbl}>{sev.label} Target ({sev.unit})</label>
+          <label className={lbl}>COT Target (°C)</label>
           <input type="number" value={cot}
             onChange={e => { setCot(e.target.value); setState('idle') }}
-            placeholder={sev.placeholder}
+            placeholder="e.g. 837"
             className={inp} />
         </div>
 
-        {/* Feed */}
         <div>
           <label className={lbl}>HC Feed Flow (kg/h per tube)</label>
           <input type="number" value={flow}
             onChange={e => { setFlow(e.target.value); setState('idle') }}
             placeholder="e.g. 1298"
             className={inp} />
-        </div>
-
-        <div>
-          <label className={lbl}>Steam / HC Dilution (kg/kg)</label>
-          <input type="number" step="0.01" value={dilut}
-            onChange={e => setDilut(e.target.value)}
-            placeholder="e.g. 0.35"
-            className={inp} />
-        </div>
-
-        {/* Inlet */}
-        <div>
-          <label className={lbl}>Coil Inlet Temperature — CIT (°C)</label>
-          <input type="number" value={cit} onChange={e => setCit(e.target.value)}
-            placeholder="e.g. 600" className={inp} />
-        </div>
-
-        <div>
-          <label className={lbl}>Coil Inlet Pressure — CIP (atm)</label>
-          <input type="number" step="0.1" value={cip} onChange={e => setCip(e.target.value)}
-            placeholder="e.g. 1.8" className={inp} />
-        </div>
-
-        {/* Flux */}
-        <div className="col-span-2">
-          <label className={lbl}>Heat Flux Profile</label>
-          <select value={profile} onChange={e => setProfile(Number(e.target.value))} className={inp}>
-            {FLUX_PROFILES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-          </select>
         </div>
 
       </div>
