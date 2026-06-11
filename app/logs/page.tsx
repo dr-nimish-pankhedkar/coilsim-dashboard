@@ -40,7 +40,8 @@ function TypeBadge({ type }: { type: string | null }) {
 
 function fmt(d: string | null) {
   if (!d) return '—'
-  return new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+  const utc = d.endsWith('Z') || d.includes('+') ? d : d + 'Z'
+  return new Date(utc).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
 function TaskSummaryTab() {
