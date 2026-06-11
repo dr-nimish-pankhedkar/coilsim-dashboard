@@ -22,10 +22,11 @@ function dotColor(alive: boolean, status: string | null) {
 }
 
 function formatAge(seconds: number): string {
-  if (seconds < 60)   return `${seconds}s ago`
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`
-  if (seconds < 86400) return `${Math.round(seconds / 3600)}h ago`
-  return `${Math.round(seconds / 86400)}d ago`
+  const s = Math.max(0, seconds)
+  if (s < 60)    return `${s}s ago`
+  if (s < 3600)  return `${Math.round(s / 60)}m ago`
+  if (s < 86400) return `${Math.round(s / 3600)}h ago`
+  return `${Math.round(s / 86400)}d ago`
 }
 
 export default function WorkerBadge() {
