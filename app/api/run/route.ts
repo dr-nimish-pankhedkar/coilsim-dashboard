@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
       heat_flux_input_type: body.heat_flux_input_type ?? undefined,
       flux_profile:         body.flux_profile         != null ? Number(body.flux_profile)         : undefined,
       custom_flux_points:   Array.isArray(body.custom_flux_points) ? body.custom_flux_points : undefined,
+      profileshape_i:       typeof body.profileshape_i === 'string' ? body.profileshape_i : undefined,
       run_length_sim:       body.run_length_sim        != null ? Number(body.run_length_sim)       : undefined,
       coke_model:           body.coke_model            ?? undefined,
       coke_conduction:      body.coke_conduction       != null ? Number(body.coke_conduction)      : undefined,

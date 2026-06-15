@@ -135,6 +135,7 @@ export interface RunParams {
   heat_flux_input_type?: string  // 'net'|'incident'
   flux_profile?: number       // heat flux profile shape 1-5 (exp.txt row 6)
   custom_flux_points?: { z: number; q: number }[]  // only when flux_profile=5
+  profileshape_i?: string     // raw content of profileshape.i → written to burnerflux.da
   run_length_sim?: number     // 0 or 1
   coke_model?: string         // 'Plehiers'|'Reyniers'
   coke_conduction?: number    // kcal/(K·m·s), default 0.0045
@@ -189,15 +190,15 @@ export async function submitDesignCaseRun(
           dilution_ratio, cit_input, cip_input, cop_input,
           severity_type, sev_location, sev_location_pct,
           pressure_sev_type, pressure_location, pressure_location_pct,
-          heat_flux_input_type, flux_profile, custom_flux_points,
+          heat_flux_input_type, flux_profile, custom_flux_points, profileshape_i,
           run_length_sim, coke_model, coke_conduction, coke_density)
        VALUES ('Pending', 'design_case',
          $1,  $2,  $3,  $4,  $5,
          $6,  $7,  $8,  $9,
          $10, $11, $12,
          $13, $14, $15,
-         $16, $17, $18,
-         $19, $20, $21, $22)
+         $16, $17, $18, $19,
+         $20, $21, $22, $23)
        RETURNING id`,
       [
         coil_id, feed_id, p.cot, p.flow, project_name,
@@ -206,6 +207,7 @@ export async function submitDesignCaseRun(
         p.pressure_sev_type ?? 'cop', p.pressure_location ?? 'adiabatic_pct', p.pressure_location_pct ?? 100,
         p.heat_flux_input_type ?? 'net', p.flux_profile ?? 1,
         p.custom_flux_points ? JSON.stringify(p.custom_flux_points) : null,
+        p.profileshape_i ?? null,
         p.run_length_sim ?? 0, p.coke_model ?? 'Plehiers',
         p.coke_conduction ?? 0.0045, p.coke_density ?? 1600,
       ]

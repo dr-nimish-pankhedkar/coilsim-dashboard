@@ -298,6 +298,20 @@ function DesignCaseWizard() {
     if (rows.length > 0) { setFluxRows(rows); setFluxKey(k) }
   }
 
+  // profileshape.i upload (written to burnerflux.da by worker for profile=5)
+  const [profileshapeContent, setProfileshapeContent] = useState<string | null>(null)
+  const [profileshapeName,    setProfileshapeName]    = useState<string>('')
+
+  function handleProfileshapeUpload(file: File) {
+    file.text().then(text => {
+      const lines = text.split('\n').map(l => l.trim()).filter(l => l !== '' && !isNaN(Number(l)))
+      if (lines.length > 0) {
+        setProfileshapeContent(text)
+        setProfileshapeName(file.name)
+      }
+    })
+  }
+
   // ── Step 5: Run Length ───────────────────────────────────────────────────
   const [runLengthSim,   setRunLengthSim]   = useState(false)
   const [cokeModel,      setCokeModel]      = useState<'Plehiers'|'Reyniers'>('Plehiers')
@@ -370,6 +384,7 @@ function DesignCaseWizard() {
           custom_flux_points: profile === 5
             ? fluxRows.map(r => ({ z: parseFloat(r.z), q: parseFloat(r.q) })).filter(p => !isNaN(p.z) && !isNaN(p.q))
             : undefined,
+          profileshape_i: profile === 5 && profileshapeContent ? profileshapeContent : undefined,
           sev_location: sevLoc,
           sev_location_pct: sevLoc === 'adiabatic_pct' ? Number(sevLocPct) : null,
           pressure_sev_type: pressSev,
@@ -930,7 +945,46 @@ function DesignCaseWizard() {
               <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-4">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold uppercase tracking-widest text-gray-500">Custom Flux Profile</p>
+
+                  {/* profileshape.i upload */}
+                  <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-500 hover:text-gray-800 transition-colors">
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    Upload profileshape.i
+                    <input type="file" accept=".i,.txt,.da" className="hidden"
+                      onChange={e => {
+                        const file = e.target.files?.[0]
+                        if (file) handleProfileshapeUpload(file)
+                        e.target.value = ''
+                      }} />
+                  </label>
                 </div>
+
+                {/* Confirmation badge when file is loaded */}
+                {profileshapeContent && (
+                  <div className="flex items-center justify-between rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span className="text-xs text-emerald-700 font-medium">{profileshapeName}</span>
+                      <span className="text-xs text-emerald-500">
+                        ({profileshapeContent.split('\n').filter(l => l.trim() !== '' && !isNaN(Number(l.trim()))).length} values)
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => { setProfileshapeContent(null); setProfileshapeName('') }}
+                      className="text-emerald-400 hover:text-emerald-600 text-base leading-none"
+                      title="Remove"
+                    >×</button>
+                  </div>
+                )}
+                {profileshapeContent && (
+                  <p className="text-[10px] text-emerald-600">
+                    This file will be written to <code className="font-mono">burnerflux.da</code> by the worker — CoilSim will use it as the custom heat flux distribution.
+                  </p>
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                   {/* Table */}
