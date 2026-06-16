@@ -304,11 +304,20 @@ function DesignCaseWizard() {
 
   function handleProfileshapeUpload(file: File) {
     file.text().then(text => {
-      const lines = text.split('\n').map(l => l.trim()).filter(l => l !== '' && !isNaN(Number(l)))
-      if (lines.length > 0) {
-        setProfileshapeContent(text)
-        setProfileshapeName(file.name)
-      }
+      const values = text.split('\n').map(l => l.trim()).filter(l => l !== '' && !isNaN(Number(l)))
+      if (values.length === 0) return
+      setProfileshapeContent(text)
+      setProfileshapeName(file.name)
+      // Populate axial pos vs flux rows: equally-spaced sections (index as axial pos)
+      const n = values.length
+      let k = fluxKey
+      const rows: FluxRow[] = values.map((v, i) => ({
+        _key: k++,
+        z: String(i),
+        q: String(parseFloat(v)),
+      }))
+      setFluxRows(rows)
+      setFluxKey(k)
     })
   }
 
