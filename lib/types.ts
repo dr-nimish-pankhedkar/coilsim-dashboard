@@ -95,6 +95,7 @@ export interface CoilGeometry {
   ncoil: number
   legs: LegDefinition[]
   adiabatic_flag: boolean
+  reactor_txt: string | null
   created_at: string
 }
 

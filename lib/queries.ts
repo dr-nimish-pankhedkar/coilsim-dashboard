@@ -82,18 +82,19 @@ export async function resetStuckTasks(): Promise<number> {
 
 export async function getAllCoilGeometries(): Promise<CoilGeometry[]> {
   const res = await pool.query<CoilGeometry>(
-    'SELECT id, name, ncoil, legs, adiabatic_flag, created_at FROM cs_py_int.coil_geometries ORDER BY id DESC'
+    'SELECT id, name, ncoil, legs, adiabatic_flag, reactor_txt, created_at FROM cs_py_int.coil_geometries ORDER BY id DESC'
   )
   return res.rows
 }
 
 export async function insertCoilGeometry(
   name: string, ncoil: number, legs: LegDefinition[], adiabatic_flag: boolean,
-  extra?: Record<string, unknown>
+  extra?: Record<string, unknown>,
+  reactor_txt?: string | null,
 ): Promise<number> {
   const res = await pool.query<{ id: number }>(
-    'INSERT INTO cs_py_int.coil_geometries (name, ncoil, legs, adiabatic_flag) VALUES ($1, $2, $3, $4) RETURNING id',
-    [name, ncoil, JSON.stringify(extra ? { legs, ...extra } : legs), adiabatic_flag ? 1 : 0]
+    'INSERT INTO cs_py_int.coil_geometries (name, ncoil, legs, adiabatic_flag, reactor_txt) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+    [name, ncoil, JSON.stringify(extra ? { legs, ...extra } : legs), adiabatic_flag ? 1 : 0, reactor_txt ?? null]
   )
   return res.rows[0].id
 }

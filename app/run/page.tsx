@@ -92,6 +92,15 @@ const smallInp = 'w-full border border-gray-200 rounded px-2 py-1.5 text-xs focu
 
 // ── Leg default ───────────────────────────────────────────────────────────────
 interface LegRow { length: number; diameter: number; wall_thickness: number; bend_length: number; adiabatic: boolean }
+// Per-junction editable row for Generic coil editor
+interface JuncRow {
+  _key: number
+  z: string;     od_mm: string;  wall_mm: string
+  angle: string; radius: string; tube_type: number
+  mass_flow: string; adiabatic: boolean
+}
+// Parsed preview from uploaded reactor.txt (not directly editable, populates the table)
+interface GenericJunction { i: number; z: number; od_mm: number; wall_mm: number; angle: number; radius: number; adiabatic: boolean }
 function defaultLeg(n: number): LegRow {
   // Default dimensions from YSB_Geo_Operating (ncoil=2, 4-pass W-coil).
   // Leg 1 length is the heated section only — pre-volume (0.985 m) is separate.
@@ -200,6 +209,42 @@ function DesignCaseWizard() {
   const [tubeMaterial, setTubeMaterial] = useState(TUBE_MATERIALS[0])
   const [gasCorrCorr,  setGasCorrCorr]  = useState(GAS_CONDUCTIVITY_CORRS[0])
   const [tubeType,     setTubeType]     = useState(TUBE_TYPES[0])
+  // Generic coil mode (ncoil=1): junction table editor
+  const [genericMode,       setGenericMode]       = useState(false)
+  const [reactorTxtContent, setReactorTxtContent] = useState<string | null>(null)
+  const [reactorTxtName,    setReactorTxtName]    = useState('')
+  const [parsedJunctions,   setParsedJunctions]   = useState<GenericJunction[]>([])
+
+  function defaultJuncRows(): JuncRow[] {
+    return [
+      { _key: 0, z: '0.000',  od_mm: '39.6', wall_mm: '8.5', angle: '0.0000', radius: '0.0000', tube_type: 1, mass_flow: '1.0', adiabatic: false },
+      { _key: 1, z: '10.000', od_mm: '39.6', wall_mm: '8.5', angle: '3.1416', radius: '0.5000', tube_type: 1, mass_flow: '1.0', adiabatic: false },
+      { _key: 2, z: '10.500', od_mm: '39.6', wall_mm: '8.5', angle: '0.0000', radius: '0.0000', tube_type: 1, mass_flow: '1.0', adiabatic: false },
+    ]
+  }
+  const [juncRows,    setJuncRows]    = useState<JuncRow[]>(defaultJuncRows)
+  const [juncKey,     setJuncKey]     = useState(3)
+  const [corrFlags,   setCorrFlags]   = useState('0 1 0 0')
+  const [enterAngle,  setEnterAngle]  = useState('3.14159')
+  const [genericMat,  setGenericMat]  = useState('14')     // numeric tube material code
+  const [genericGas,  setGenericGas]  = useState('1')      // gas corr code
+  const [defMassFlow, setDefMassFlow] = useState('1.0')
+
+  function addJunc() {
+    const last = juncRows[juncRows.length - 1]
+    setJuncRows(r => [...r, {
+      _key: juncKey,
+      z: last ? String((parseFloat(last.z) + 1).toFixed(3)) : '0.0',
+      od_mm: last?.od_mm ?? '39.6', wall_mm: last?.wall_mm ?? '8.5',
+      angle: '0.0000', radius: '0.0000',
+      tube_type: last?.tube_type ?? 1, mass_flow: last?.mass_flow ?? '1.0', adiabatic: false,
+    }])
+    setJuncKey(k => k + 1)
+  }
+  function removeJunc(key: number) { setJuncRows(r => r.filter(j => j._key !== key)) }
+  function updateJunc(key: number, field: keyof JuncRow, val: string | number | boolean) {
+    setJuncRows(r => r.map(j => j._key !== key ? j : { ...j, [field]: val }))
+  }
 
   function handleCoilTypeSelect(ct: typeof COIL_TYPES[number]) {
     setSelectedCoilType(ct)
@@ -221,6 +266,85 @@ function DesignCaseWizard() {
     setLegs(prev => prev.map((l, idx) =>
       idx === i ? { ...l, [field]: typeof val === 'boolean' ? val : Number(val) } : l
     ))
+  }
+
+  interface ParsedReactor {
+    juncRows: JuncRow[]
+    matCode: string; corrFlags: string; enterAngle: string; gasCorr: string
+  }
+
+  function parseReactorTxt(content: string): ParsedReactor | null {
+    const lines = content.split('\n').map(l => l.trim()).filter(l => l !== '')
+    if (lines.length < 2) return null
+    if (parseInt(lines[0]) !== 1) return null
+    const n = parseInt(lines[1])
+    if (isNaN(n) || n < 1 || n > 500) return null
+    const lpa = Math.ceil(n / 9)
+    function readArr(start: number): number[] {
+      const vals: number[] = []
+      for (let i = 0; i < lpa; i++) {
+        ;(lines[start + i] ?? '').split(/\s+/).forEach(v => {
+          const x = parseFloat(v); if (!isNaN(x)) vals.push(x)
+        })
+      }
+      return vals.slice(0, n)
+    }
+    let cur = 2
+    const wallArr  = readArr(cur); cur += lpa
+    const circArr  = readArr(cur); cur += lpa
+    cur += lpa  // skip pitch array
+    const axialArr = readArr(cur); cur += lpa
+    const angleArr = readArr(cur); cur += lpa
+    const radArr   = readArr(cur); cur += lpa
+    const flagArr  = readArr(cur); cur += lpa
+    // global: mat code, correction flags
+    const matCode  = (lines[cur] ?? '').trim(); cur += 1
+    const corrLine = (lines[cur] ?? '').trim(); cur += 1
+    // tube type array
+    const typeArr  = readArr(cur); cur += lpa
+    const mflowArr = readArr(cur); cur += lpa
+    cur += lpa  // skip fin_dist
+    cur += lpa  // skip perim_ratio
+    const enterAngle = (lines[cur] ?? '').trim(); cur += 1
+    const gasCorr    = (lines[cur] ?? '').trim()
+
+    let k = juncKey
+    const juncRows: JuncRow[] = Array.from({ length: n }, (_, i) => ({
+      _key:      k++,
+      z:         (axialArr[i] ?? 0).toFixed(4),
+      od_mm:     circArr[i] != null ? ((circArr[i] / Math.PI) * 1000).toFixed(2) : '0',
+      wall_mm:   ((wallArr[i] ?? 0) * 1000).toFixed(2),
+      angle:     (angleArr[i] ?? 0).toFixed(4),
+      radius:    (radArr[i] ?? 0).toFixed(4),
+      tube_type: typeArr[i] != null ? Math.round(typeArr[i]) : 1,
+      mass_flow: (mflowArr[i] ?? 1.0).toFixed(3),
+      adiabatic: (flagArr[i] ?? 0) >= 4,
+    }))
+
+    return {
+      juncRows,
+      matCode:    matCode || '14',
+      corrFlags:  corrLine || '0 1 0 0',
+      enterAngle: enterAngle || '3.14159',
+      gasCorr:    gasCorr || '1',
+    }
+  }
+
+  function handleReactorTxtUpload(file: File) {
+    file.text().then(text => {
+      setReactorTxtContent(text)
+      setReactorTxtName(file.name)
+      const parsed = parseReactorTxt(text)
+      if (parsed) {
+        setJuncRows(parsed.juncRows)
+        setJuncKey(k => k + parsed.juncRows.length)
+        setGenericMat(parsed.matCode)
+        setCorrFlags(parsed.corrFlags)
+        setEnterAngle(parsed.enterAngle)
+        setGenericGas(parsed.gasCorr)
+        setParsedJunctions([])  // not used when editor is populated
+      }
+    })
   }
 
   // ── Step 3: Feedstock ────────────────────────────────────────────────────
@@ -357,10 +481,31 @@ function DesignCaseWizard() {
           ? { pre_volume_enabled: true, pre_volume_length: Number(preVolLength) }
           : { pre_volume_enabled: false }
 
-        const [coilRes, feedRes] = await Promise.all([
-          fetch('/api/coil-geometries', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+        const coilBody = genericMode
+          ? {
+              name: coilName || `Generic_${projName}`,
+              ncoil: 1, legs: [], adiabatic_flag: false,
+              generic_data: {
+                junctions: juncRows.map(j => ({
+                  z:          parseFloat(j.z)     || 0,
+                  od_mm:      parseFloat(j.od_mm)  || 0,
+                  wall_mm:    parseFloat(j.wall_mm) || 0,
+                  angle:      parseFloat(j.angle)  || 0,
+                  radius:     parseFloat(j.radius) || 0,
+                  tube_type:  j.tube_type,
+                  mass_flow:  parseFloat(j.mass_flow) || 1.0,
+                  fin_dist:   0.0,
+                  perim_ratio: 1.0,
+                  adiabatic:  j.adiabatic,
+                })),
+                tube_material_code: parseInt(genericMat) || 14,
+                correction_flags:   corrFlags.trim().split(/\s+/).map(Number),
+                entering_angle:     parseFloat(enterAngle) || Math.PI,
+                gas_corr_code:      parseInt(genericGas) || 1,
+                mass_flow_factor:   parseFloat(defMassFlow) || 1.0,
+              },
+            }
+          : {
               name: coilName || `${selectedCoilType.name}_${projName}`,
               ncoil: selectedCoilType.ncoil, legs: legsPayload,
               adiabatic_flag: hasAdvol, ...advolPayload, ...prevolPayload,
@@ -368,7 +513,12 @@ function DesignCaseWizard() {
               tube_material: tubeMaterial,
               gas_conductivity_corr: gasCorrCorr,
               tube_type: tubeType,
-            }),
+            }
+
+        const [coilRes, feedRes] = await Promise.all([
+          fetch('/api/coil-geometries', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(coilBody),
           }),
           fetch('/api/feedstock-definitions', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -420,7 +570,10 @@ function DesignCaseWizard() {
   // ── Step validation ──────────────────────────────────────────────────────
   function canProceed() {
     if (step === 0) return projName.trim().length > 0
-    if (step === 2 && useMode === 'new') return legs.length > 0
+    if (step === 2 && useMode === 'new') {
+      if (genericMode) return juncRows.length > 0
+      return legs.length > 0
+    }
     if (step === 3 && useMode === 'new') return comps.length > 0 && feedName.trim().length > 0
     if (step === 4) return cotVal.trim().length > 0 && flow.trim().length > 0
     // step 5 (Run Length) — always valid
@@ -527,29 +680,51 @@ function DesignCaseWizard() {
           </div>
           <div className="grid grid-cols-3 gap-3">
             {COIL_TYPES.map(ct => (
-              <button key={ct.ncoil} onClick={() => handleCoilTypeSelect(ct)}
+              <button key={ct.ncoil}
+                onClick={() => { handleCoilTypeSelect(ct); setGenericMode(false) }}
                 className={`rounded-xl border p-4 text-left transition-all hover:shadow-sm ${
-                  selectedCoilType.ncoil === ct.ncoil
+                  !genericMode && selectedCoilType.ncoil === ct.ncoil
                     ? 'border-gray-900 bg-gray-900 text-white shadow'
                     : 'border-gray-200 hover:border-gray-400 text-gray-700'
                 }`}>
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text-lg font-black font-mono ${selectedCoilType.ncoil === ct.ncoil ? 'text-white' : 'text-gray-300'}`}>
+                  <span className={`text-lg font-black font-mono ${!genericMode && selectedCoilType.ncoil === ct.ncoil ? 'text-white' : 'text-gray-300'}`}>
                     {ct.icon}
                   </span>
                   <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-                    selectedCoilType.ncoil === ct.ncoil ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400'
+                    !genericMode && selectedCoilType.ncoil === ct.ncoil ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400'
                   }`}>n={ct.ncoil}</span>
                 </div>
                 <p className="text-sm font-semibold">{ct.name}</p>
-                <p className={`text-xs mt-0.5 ${selectedCoilType.ncoil === ct.ncoil ? 'text-gray-300' : 'text-gray-400'}`}>
+                <p className={`text-xs mt-0.5 ${!genericMode && selectedCoilType.ncoil === ct.ncoil ? 'text-gray-300' : 'text-gray-400'}`}>
                   {ct.desc}
                 </p>
-                <p className={`text-xs mt-1 font-medium ${selectedCoilType.ncoil === ct.ncoil ? 'text-gray-200' : 'text-gray-400'}`}>
+                <p className={`text-xs mt-1 font-medium ${!genericMode && selectedCoilType.ncoil === ct.ncoil ? 'text-gray-200' : 'text-gray-400'}`}>
                   {ct.passes} passes
                 </p>
               </button>
             ))}
+
+            {/* Generic coil — junction-based, not in the standard ncoil list */}
+            <button
+              onClick={() => setGenericMode(true)}
+              className={`rounded-xl border p-4 text-left transition-all hover:shadow-sm col-span-1 ${
+                genericMode
+                  ? 'border-indigo-600 bg-indigo-600 text-white shadow'
+                  : 'border-dashed border-gray-300 hover:border-indigo-400 text-gray-700'
+              }`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className={`text-lg font-black font-mono ${genericMode ? 'text-white' : 'text-indigo-300'}`}>GC</span>
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${genericMode ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-400'}`}>n=1</span>
+              </div>
+              <p className="text-sm font-semibold">Generic coil</p>
+              <p className={`text-xs mt-0.5 ${genericMode ? 'text-indigo-200' : 'text-gray-400'}`}>
+                Custom junction-based geometry
+              </p>
+              <p className={`text-xs mt-1 font-medium ${genericMode ? 'text-indigo-100' : 'text-gray-400'}`}>
+                Enter junctions manually
+              </p>
+            </button>
           </div>
           <Nav step={step} total={STEPS.length} onBack={back} onNext={next} />
         </div>
@@ -561,7 +736,9 @@ function DesignCaseWizard() {
           <div>
             <h2 className="text-base font-semibold text-gray-900">Coil Geometry</h2>
             <p className="text-sm text-gray-400 mt-1">
-              Define tube dimensions for each pass. Pre-filled with typical values for a <strong>{selectedCoilType.name}</strong>.
+              {genericMode
+                ? 'Define junction-based geometry for a Generic coil. Enter each junction\'s dimensions, bend angles, and tube properties.'
+                : <>Define tube dimensions for each pass. Pre-filled with typical values for a <strong>{selectedCoilType.name}</strong>.</>}
             </p>
           </div>
 
@@ -571,15 +748,144 @@ function DesignCaseWizard() {
             </div>
           ) : (
             <>
+              {/* Geometry label */}
+              <div className="card">
+                <label className="block text-xs text-gray-500 mb-1">Geometry label</label>
+                <input value={coilName}
+                  onChange={e => setCoilName(e.target.value)}
+                  placeholder={genericMode ? `Generic_${projName || 'geo'}` : `${selectedCoilType.name}_${projName || 'geo'}`}
+                  className={inp} />
+              </div>
+
+              {genericMode ? (
+                /* ── Generic coil: junction table editor ────────────────── */
+                <div className="space-y-4">
+
+                  {/* Import from file shortcut */}
+                  <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-3">
+                    <p className="text-xs text-gray-500 flex-1">
+                      Have an existing <code className="font-mono bg-white px-1 rounded border border-gray-200">reactor.txt</code>? Upload it to pre-fill the table below.
+                    </p>
+                    <label className="cursor-pointer shrink-0">
+                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+                        Import from file
+                      </span>
+                      <input type="file" accept=".txt" className="hidden"
+                        onChange={e => { const f = e.target.files?.[0]; if (f) handleReactorTxtUpload(f) }} />
+                    </label>
+                    {reactorTxtName && (
+                      <span className="text-xs text-emerald-600 font-medium shrink-0">{reactorTxtName}</span>
+                    )}
+                  </div>
+
+                  {/* Junction table */}
+                  <div className="card p-0 overflow-hidden">
+                    <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Junctions</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          One row per junction. Bend angle 0 = straight; π ≈ 3.1416 = U-bend. Tube type: 1 = smooth, 3 = rifled fin.
+                        </p>
+                      </div>
+                      <button onClick={addJunc}
+                        className="flex items-center gap-1 text-xs font-medium text-gray-700 border border-gray-200 bg-white rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors shrink-0">
+                        + Add junction
+                      </button>
+                    </div>
+                    <div className="overflow-auto max-h-80">
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-50/80 sticky top-0">
+                          <tr>
+                            {['#', 'Axial z (m)', 'OD (mm)', 'Wall (mm)', 'Bend angle (rad)', 'Bend radius (m)', 'Tube type', 'Mass flow', 'Adiabatic', ''].map(h => (
+                              <th key={h} className="text-left px-2 py-2 text-gray-400 font-semibold uppercase tracking-wide text-[10px] whitespace-nowrap">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {juncRows.map((j, idx) => (
+                            <tr key={j._key} className={`border-t border-gray-50 ${j.adiabatic ? 'bg-amber-50/60' : 'hover:bg-gray-50/50'}`}>
+                              <td className="px-2 py-1 font-mono text-gray-400 text-[11px]">{idx + 1}</td>
+                              {(['z', 'od_mm', 'wall_mm', 'angle', 'radius'] as const).map(f => (
+                                <td key={f} className="px-1 py-1">
+                                  <input type="number" step="any" value={j[f]}
+                                    onChange={e => updateJunc(j._key, f, e.target.value)}
+                                    className="w-20 border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900 bg-white" />
+                                </td>
+                              ))}
+                              <td className="px-1 py-1">
+                                <select value={j.tube_type}
+                                  onChange={e => updateJunc(j._key, 'tube_type', Number(e.target.value))}
+                                  className="border border-gray-200 rounded px-1.5 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-gray-900">
+                                  <option value={1}>1 — Smooth</option>
+                                  <option value={3}>3 — Rifled fin</option>
+                                </select>
+                              </td>
+                              <td className="px-1 py-1">
+                                <input type="number" step="0.1" value={j.mass_flow}
+                                  onChange={e => updateJunc(j._key, 'mass_flow', e.target.value)}
+                                  className="w-16 border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900 bg-white" />
+                              </td>
+                              <td className="px-2 py-1">
+                                <input type="checkbox" checked={j.adiabatic}
+                                  onChange={e => updateJunc(j._key, 'adiabatic', e.target.checked)}
+                                  className="w-3.5 h-3.5 accent-amber-600" />
+                              </td>
+                              <td className="px-2 py-1">
+                                <button onClick={() => removeJunc(j._key)}
+                                  className="text-gray-300 hover:text-red-500 transition-colors font-medium text-[11px]">✕</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="px-4 py-2 border-t border-gray-100 bg-gray-50/50 text-[11px] text-gray-400">
+                      {juncRows.length} junction{juncRows.length !== 1 ? 's' : ''} defined
+                    </div>
+                  </div>
+
+                  {/* Global properties */}
+                  <div className="card space-y-4">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Global Coil Properties</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Tube material code</label>
+                        <input type="number" min={1} max={30} value={genericMat}
+                          onChange={e => setGenericMat(e.target.value)}
+                          className={inp} />
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          1=21-4N  2=AISI314  5=HK40  6=HP40  14=Incoloy800H  19=custom
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Correction flags (4 integers)</label>
+                        <input value={corrFlags} onChange={e => setCorrFlags(e.target.value)}
+                          placeholder="0 1 0 0" className={inp} />
+                        <p className="text-[10px] text-gray-400 mt-0.5">Space-separated. e.g. <code className="font-mono">0 1 1 1</code> for UTDFUR</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Entering angle (rad)</label>
+                        <input type="number" step="any" value={enterAngle}
+                          onChange={e => setEnterAngle(e.target.value)}
+                          className={inp} />
+                        <p className="text-[10px] text-gray-400 mt-0.5">π ≈ 3.14159 = axial entry</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Gas corr. code</label>
+                        <select value={genericGas} onChange={e => setGenericGas(e.target.value)} className={inp}>
+                          <option value="1">1 — Modified Eucken</option>
+                          <option value="2">2 — Eucken</option>
+                          <option value="3">3 — Wassiljewa</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* ── Standard coil: legs table + piping properties ──────── */
+                <>
               <div className="card space-y-4">
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Geometry label</label>
-                    <input value={coilName}
-                      onChange={e => setCoilName(e.target.value)}
-                      placeholder={`${selectedCoilType.name}_${projName || 'geo'}`}
-                      className={inp} />
-                  </div>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Number of passes</label>
                     <input type="number" min={1} max={20} value={passes}
@@ -704,6 +1010,8 @@ function DesignCaseWizard() {
                   </div>
                 </div>
               </div>
+                </>
+              )}
             </>
           )}
 
