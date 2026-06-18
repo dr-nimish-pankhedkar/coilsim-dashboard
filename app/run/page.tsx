@@ -51,12 +51,36 @@ const FLUX_PROFILES = [
   { value: 5, label: 'Custom',      desc: 'User-defined flux distribution (provide profile file)' },
 ]
 
-// Piping properties
+// Piping properties — standard (per-leg) coil
 const TUBE_MATERIALS = [
   '800_800H', '800_800', 'HP_40', 'HK_40', 'Incoloy_825', 'Inconel_600', '304SS', '316SS', 'Custom',
 ]
 const GAS_CONDUCTIVITY_CORRS = ['Modified Eucken', 'Eucken', 'Wassiljewa']
 const TUBE_TYPES = ['Smooth circular tube', 'Finned tube', 'Twisted tape insert']
+
+// New coil geometry (junction-based) — tube material dropdown matches CoilSim names
+const JUNCTION_TUBE_MATERIALS = [
+  { label: 'Incoloy 800H (800/800H)',   code: 14 },
+  { label: 'Incoloy 800 (800/800)',     code: 13 },
+  { label: 'HP-40',                      code:  6 },
+  { label: 'HK-40',                      code:  5 },
+  { label: 'Incoloy 825',               code: 15 },
+  { label: 'Inconel 600',               code: 16 },
+  { label: '304 Stainless Steel',       code:  3 },
+  { label: '316 Stainless Steel',       code:  4 },
+  { label: 'Manaurite / Custom (19)',   code: 19 },
+  { label: 'Custom — enter code',       code:  0 },
+]
+const JUNCTION_TUBE_TYPES = [
+  { label: 'Smooth circular tube', code: 1 },
+  { label: 'Finned tube',          code: 2 },
+  { label: 'Rifled fin',           code: 3 },
+]
+
+// Generic coil coil-configuration options (CoilSim "Coil configuration" dropdown)
+const GENERIC_COIL_CONFIGS = [
+  'Single pass', 'U-tube (2 pass)', 'Serpentine (multi-pass)', 'Custom',
+]
 
 const COMPONENTS = [
   { id: 1,   name: 'Hydrogen',         formula: 'H₂',       group: 'Light gases' },
@@ -92,12 +116,22 @@ const smallInp = 'w-full border border-gray-200 rounded px-2 py-1.5 text-xs focu
 
 // ── Leg default ───────────────────────────────────────────────────────────────
 interface LegRow { length: number; diameter: number; wall_thickness: number; bend_length: number; adiabatic: boolean }
-// Per-junction editable row for Generic coil editor
+// Per-junction editable row for New coil geometry editor (matches CoilSim "New coil geometry" form)
 interface JuncRow {
   _key: number
-  z: string;     od_mm: string;  wall_mm: string
-  angle: string; radius: string; tube_type: number
-  mass_flow: string; adiabatic: boolean
+  z: string;        od_mm: string;   wall_mm: string
+  angle: string;    radius: string
+  mass_flow: string; tube_material_code: number; tube_type_code: number
+  fin_dist: string; pitch: string; perim_ratio: string
+  adiabatic: boolean
+}
+// Generic coil per-pass row (matches CoilSim "Generic coil" form)
+interface GenericPassRow {
+  _key: number
+  tube_length: string; int_dia: string; wall_mm: string; n_parallel: string
+}
+interface GenericConnRow {
+  _key: number; from_pass: string; to_pass: string; cl_spacing: string
 }
 // Parsed preview from uploaded reactor.txt (not directly editable, populates the table)
 interface GenericJunction { i: number; z: number; od_mm: number; wall_mm: number; angle: number; radius: number; adiabatic: boolean }
@@ -217,18 +251,22 @@ function DesignCaseWizard() {
 
   function defaultJuncRows(): JuncRow[] {
     return [
-      { _key: 0, z: '0.000',  od_mm: '39.6', wall_mm: '8.5', angle: '0.0000', radius: '0.0000', tube_type: 1, mass_flow: '1.0', adiabatic: false },
-      { _key: 1, z: '10.000', od_mm: '39.6', wall_mm: '8.5', angle: '3.1416', radius: '0.5000', tube_type: 1, mass_flow: '1.0', adiabatic: false },
-      { _key: 2, z: '10.500', od_mm: '39.6', wall_mm: '8.5', angle: '0.0000', radius: '0.0000', tube_type: 1, mass_flow: '1.0', adiabatic: false },
+      { _key: 0, z: '0.000',  od_mm: '39.6', wall_mm: '8.5', angle: '0.0000', radius: '0.0000', mass_flow: '1.0', tube_material_code: 14, tube_type_code: 1, fin_dist: '0.0', pitch: '0.0', perim_ratio: '1.0', adiabatic: false },
+      { _key: 1, z: '10.000', od_mm: '39.6', wall_mm: '8.5', angle: '3.1416', radius: '0.5000', mass_flow: '1.0', tube_material_code: 14, tube_type_code: 1, fin_dist: '0.0', pitch: '0.0', perim_ratio: '1.0', adiabatic: false },
+      { _key: 2, z: '10.500', od_mm: '39.6', wall_mm: '8.5', angle: '0.0000', radius: '0.0000', mass_flow: '1.0', tube_material_code: 14, tube_type_code: 1, fin_dist: '0.0', pitch: '0.0', perim_ratio: '1.0', adiabatic: false },
     ]
   }
   const [juncRows,    setJuncRows]    = useState<JuncRow[]>(defaultJuncRows)
   const [juncKey,     setJuncKey]     = useState(3)
   const [corrFlags,   setCorrFlags]   = useState('0 1 0 0')
   const [enterAngle,  setEnterAngle]  = useState('3.14159')
-  const [genericMat,  setGenericMat]  = useState('14')     // numeric tube material code
-  const [genericGas,  setGenericGas]  = useState('1')      // gas corr code
-  const [defMassFlow, setDefMassFlow] = useState('1.0')
+  const [genericGas,  setGenericGas]  = useState(GAS_CONDUCTIVITY_CORRS[0])
+  const [genericMat,  setGenericMat]  = useState('14')
+  // New coil geometry adiabatic volume
+  const [juncHasAdvol,  setJuncHasAdvol]  = useState(false)
+  const [juncAdVol,     setJuncAdVol]     = useState('1.0')
+  const [juncAdDia,     setJuncAdDia]     = useState('0.1')
+  const [juncAdWall,    setJuncAdWall]    = useState('0.008')
 
   function addJunc() {
     const last = juncRows[juncRows.length - 1]
@@ -237,13 +275,51 @@ function DesignCaseWizard() {
       z: last ? String((parseFloat(last.z) + 1).toFixed(3)) : '0.0',
       od_mm: last?.od_mm ?? '39.6', wall_mm: last?.wall_mm ?? '8.5',
       angle: '0.0000', radius: '0.0000',
-      tube_type: last?.tube_type ?? 1, mass_flow: last?.mass_flow ?? '1.0', adiabatic: false,
+      mass_flow: last?.mass_flow ?? '1.0',
+      tube_material_code: last?.tube_material_code ?? 14,
+      tube_type_code: last?.tube_type_code ?? 1,
+      fin_dist: last?.fin_dist ?? '0.0',
+      pitch: last?.pitch ?? '0.0',
+      perim_ratio: last?.perim_ratio ?? '1.0',
+      adiabatic: false,
     }])
     setJuncKey(k => k + 1)
   }
   function removeJunc(key: number) { setJuncRows(r => r.filter(j => j._key !== key)) }
   function updateJunc(key: number, field: keyof JuncRow, val: string | number | boolean) {
     setJuncRows(r => r.map(j => j._key !== key ? j : { ...j, [field]: val }))
+  }
+
+  // ── Generic coil state (per-pass, CoilSim "Generic coil" form) ────────────
+  const [gcMode,        setGcMode]        = useState(false)  // true = Generic coil (not New coil geometry)
+  const [gcConfig,      setGcConfig]      = useState(GENERIC_COIL_CONFIGS[0])
+  const [gcPassRows,    setGcPassRows]    = useState<GenericPassRow[]>([
+    { _key: 0, tube_length: '14.0', int_dia: '0.090', wall_mm: '7.0', n_parallel: '1' },
+  ])
+  const [gcConnRows,    setGcConnRows]    = useState<GenericConnRow[]>([])
+  const [gcPassKey,     setGcPassKey]     = useState(1)
+  const [gcConnKey,     setGcConnKey]     = useState(0)
+  const [gcHasAdvol,    setGcHasAdvol]    = useState(false)
+  const [gcAdVolume,    setGcAdVolume]    = useState('1.0')
+  const [gcAdDia,       setGcAdDia]       = useState('0.1')
+  const [gcJoining,     setGcJoining]     = useState('1')
+
+  function addGcPass() {
+    const last = gcPassRows[gcPassRows.length - 1]
+    setGcPassRows(r => [...r, { _key: gcPassKey, tube_length: last?.tube_length ?? '14.0', int_dia: last?.int_dia ?? '0.090', wall_mm: last?.wall_mm ?? '7.0', n_parallel: last?.n_parallel ?? '1' }])
+    setGcPassKey(k => k + 1)
+  }
+  function removeGcPass(key: number) { setGcPassRows(r => r.filter(p => p._key !== key)) }
+  function updateGcPass(key: number, field: keyof GenericPassRow, val: string) {
+    setGcPassRows(r => r.map(p => p._key !== key ? p : { ...p, [field]: val }))
+  }
+  function addGcConn() {
+    setGcConnRows(r => [...r, { _key: gcConnKey, from_pass: '1', to_pass: '2', cl_spacing: '0.3' }])
+    setGcConnKey(k => k + 1)
+  }
+  function removeGcConn(key: number) { setGcConnRows(r => r.filter(c => c._key !== key)) }
+  function updateGcConn(key: number, field: keyof GenericConnRow, val: string) {
+    setGcConnRows(r => r.map(c => c._key !== key ? c : { ...c, [field]: val }))
   }
 
   function handleCoilTypeSelect(ct: typeof COIL_TYPES[number]) {
@@ -292,7 +368,7 @@ function DesignCaseWizard() {
     let cur = 2
     const wallArr  = readArr(cur); cur += lpa
     const circArr  = readArr(cur); cur += lpa
-    cur += lpa  // skip pitch array
+    cur += lpa  // skip pitch array (not displayed per-junction)
     const axialArr = readArr(cur); cur += lpa
     const angleArr = readArr(cur); cur += lpa
     const radArr   = readArr(cur); cur += lpa
@@ -300,33 +376,38 @@ function DesignCaseWizard() {
     // global: mat code, correction flags
     const matCode  = (lines[cur] ?? '').trim(); cur += 1
     const corrLine = (lines[cur] ?? '').trim(); cur += 1
-    // tube type array
-    const typeArr  = readArr(cur); cur += lpa
-    const mflowArr = readArr(cur); cur += lpa
-    cur += lpa  // skip fin_dist
-    cur += lpa  // skip perim_ratio
+    // per-junction arrays: tube type, mass flow, fin_dist, perim_ratio
+    const typeArr    = readArr(cur); cur += lpa
+    const mflowArr   = readArr(cur); cur += lpa
+    const findistArr = readArr(cur); cur += lpa
+    const perimArr   = readArr(cur); cur += lpa
     const enterAngle = (lines[cur] ?? '').trim(); cur += 1
     const gasCorr    = (lines[cur] ?? '').trim()
 
     let k = juncKey
     const juncRows: JuncRow[] = Array.from({ length: n }, (_, i) => ({
-      _key:      k++,
-      z:         (axialArr[i] ?? 0).toFixed(4),
-      od_mm:     circArr[i] != null ? ((circArr[i] / Math.PI) * 1000).toFixed(2) : '0',
-      wall_mm:   ((wallArr[i] ?? 0) * 1000).toFixed(2),
-      angle:     (angleArr[i] ?? 0).toFixed(4),
-      radius:    (radArr[i] ?? 0).toFixed(4),
-      tube_type: typeArr[i] != null ? Math.round(typeArr[i]) : 1,
-      mass_flow: (mflowArr[i] ?? 1.0).toFixed(3),
-      adiabatic: (flagArr[i] ?? 0) >= 4,
+      _key:               k++,
+      z:                  (axialArr[i] ?? 0).toFixed(4),
+      od_mm:              circArr[i] != null ? ((circArr[i] / Math.PI) * 1000).toFixed(2) : '0',
+      wall_mm:            ((wallArr[i] ?? 0) * 1000).toFixed(2),
+      angle:              (angleArr[i] ?? 0).toFixed(4),
+      radius:             (radArr[i] ?? 0).toFixed(4),
+      mass_flow:          (mflowArr[i] ?? 1.0).toFixed(3),
+      tube_material_code: 0,   // not stored per-junction in file; user sets globally
+      tube_type_code:     typeArr[i] != null ? Math.round(typeArr[i]) : 1,
+      fin_dist:           (findistArr[i] ?? 0).toFixed(4),
+      pitch:              '0.0',
+      perim_ratio:        (perimArr[i] ?? 1.0).toFixed(4),
+      adiabatic:          (flagArr[i] ?? 0) >= 4,
     }))
 
+    const gasIdx = parseInt(gasCorr) - 1
     return {
       juncRows,
       matCode:    matCode || '14',
       corrFlags:  corrLine || '0 1 0 0',
       enterAngle: enterAngle || '3.14159',
-      gasCorr:    gasCorr || '1',
+      gasCorr:    GAS_CONDUCTIVITY_CORRS[gasIdx] ?? GAS_CONDUCTIVITY_CORRS[0],
     }
   }
 
@@ -481,28 +562,57 @@ function DesignCaseWizard() {
           ? { pre_volume_enabled: true, pre_volume_length: Number(preVolLength) }
           : { pre_volume_enabled: false }
 
-        const coilBody = genericMode
+        const coilBody = genericMode && gcMode
           ? {
-              name: coilName || `Generic_${projName}`,
-              ncoil: 1, legs: [], adiabatic_flag: false,
+              /* Generic coil — per-pass with parallel tubes */
+              name: coilName || `GenericCoil_${projName}`,
+              ncoil: 99, legs: [], adiabatic_flag: gcHasAdvol,
+              generic_data: {
+                _generic_coil: true,
+                coil_config:   gcConfig,
+                joining:       parseInt(gcJoining) || 1,
+                passes: gcPassRows.map((p, i) => ({
+                  pass_id:     i + 1,
+                  tube_length: parseFloat(p.tube_length) || 0,
+                  int_dia:     parseFloat(p.int_dia)     || 0,
+                  wall_mm:     parseFloat(p.wall_mm)     || 0,
+                  n_parallel:  parseInt(p.n_parallel)    || 1,
+                })),
+                connections: gcConnRows.map(c => ({
+                  from_pass:  parseInt(c.from_pass)   || 1,
+                  to_pass:    parseInt(c.to_pass)      || 2,
+                  cl_spacing: parseFloat(c.cl_spacing) || 0,
+                })),
+                adiabatic_volume:   gcHasAdvol ? parseFloat(gcAdVolume) : null,
+                adiabatic_diameter: gcHasAdvol ? parseFloat(gcAdDia)    : null,
+              },
+            }
+          : genericMode && !gcMode
+          ? {
+              /* New coil geometry — junction-based (ncoil=1) */
+              name: coilName || `NewCoilGeo_${projName}`,
+              ncoil: 1, legs: [], adiabatic_flag: juncHasAdvol,
               generic_data: {
                 junctions: juncRows.map(j => ({
-                  z:          parseFloat(j.z)     || 0,
-                  od_mm:      parseFloat(j.od_mm)  || 0,
-                  wall_mm:    parseFloat(j.wall_mm) || 0,
-                  angle:      parseFloat(j.angle)  || 0,
-                  radius:     parseFloat(j.radius) || 0,
-                  tube_type:  j.tube_type,
-                  mass_flow:  parseFloat(j.mass_flow) || 1.0,
-                  fin_dist:   0.0,
-                  perim_ratio: 1.0,
-                  adiabatic:  j.adiabatic,
+                  z:                 parseFloat(j.z)        || 0,
+                  od_mm:             parseFloat(j.od_mm)    || 0,
+                  wall_mm:           parseFloat(j.wall_mm)  || 0,
+                  angle:             parseFloat(j.angle)    || 0,
+                  radius:            parseFloat(j.radius)   || 0,
+                  tube_type:         j.tube_type_code,
+                  tube_material_code: j.tube_material_code,
+                  mass_flow:         parseFloat(j.mass_flow)    || 1.0,
+                  fin_dist:          parseFloat(j.fin_dist)     || 0.0,
+                  pitch:             parseFloat(j.pitch)        || 0.0,
+                  perim_ratio:       parseFloat(j.perim_ratio)  || 1.0,
+                  adiabatic:         j.adiabatic,
                 })),
-                tube_material_code: parseInt(genericMat) || 14,
-                correction_flags:   corrFlags.trim().split(/\s+/).map(Number),
-                entering_angle:     parseFloat(enterAngle) || Math.PI,
-                gas_corr_code:      parseInt(genericGas) || 1,
-                mass_flow_factor:   parseFloat(defMassFlow) || 1.0,
+                correction_flags: corrFlags.trim().split(/\s+/).map(Number),
+                entering_angle:   parseFloat(enterAngle) || Math.PI,
+                gas_corr_code:    GAS_CONDUCTIVITY_CORRS.indexOf(genericGas) + 1 || 1,
+                adiabatic_volume:   juncHasAdvol ? parseFloat(juncAdVol)  : null,
+                adiabatic_diameter: juncHasAdvol ? parseFloat(juncAdDia)  : null,
+                adiabatic_wall:     juncHasAdvol ? parseFloat(juncAdWall) : null,
               },
             }
           : {
@@ -571,7 +681,8 @@ function DesignCaseWizard() {
   function canProceed() {
     if (step === 0) return projName.trim().length > 0
     if (step === 2 && useMode === 'new') {
-      if (genericMode) return juncRows.length > 0
+      if (genericMode && gcMode) return gcPassRows.length > 0
+      if (genericMode && !gcMode) return juncRows.length > 0
       return legs.length > 0
     }
     if (step === 3 && useMode === 'new') return comps.length > 0 && feedName.trim().length > 0
@@ -705,25 +816,38 @@ function DesignCaseWizard() {
               </button>
             ))}
 
-            {/* Generic coil — junction-based, not in the standard ncoil list */}
+            {/* New coil geometry — junction-based (CoilSim "New coil geometry") */}
             <button
-              onClick={() => setGenericMode(true)}
-              className={`rounded-xl border p-4 text-left transition-all hover:shadow-sm col-span-1 ${
-                genericMode
+              onClick={() => { setGenericMode(true); setGcMode(false) }}
+              className={`rounded-xl border p-4 text-left transition-all hover:shadow-sm ${
+                genericMode && !gcMode
                   ? 'border-indigo-600 bg-indigo-600 text-white shadow'
-                  : 'border-dashed border-gray-300 hover:border-indigo-400 text-gray-700'
+                  : 'border-dashed border-indigo-200 hover:border-indigo-400 text-gray-700'
               }`}>
               <div className="flex items-center justify-between mb-2">
-                <span className={`text-lg font-black font-mono ${genericMode ? 'text-white' : 'text-indigo-300'}`}>GC</span>
-                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${genericMode ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-400'}`}>n=1</span>
+                <span className={`text-lg font-black font-mono ${genericMode && !gcMode ? 'text-white' : 'text-indigo-300'}`}>NC</span>
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${genericMode && !gcMode ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-400'}`}>n=1</span>
+              </div>
+              <p className="text-sm font-semibold">New coil geometry</p>
+              <p className={`text-xs mt-0.5 ${genericMode && !gcMode ? 'text-indigo-200' : 'text-gray-400'}`}>Junction-by-junction definition</p>
+              <p className={`text-xs mt-1 font-medium ${genericMode && !gcMode ? 'text-indigo-100' : 'text-gray-400'}`}>Up to 200 junctions</p>
+            </button>
+
+            {/* Generic coil — per-pass with parallel tubes (CoilSim "Generic coil") */}
+            <button
+              onClick={() => { setGenericMode(true); setGcMode(true) }}
+              className={`rounded-xl border p-4 text-left transition-all hover:shadow-sm ${
+                gcMode
+                  ? 'border-violet-600 bg-violet-600 text-white shadow'
+                  : 'border-dashed border-violet-200 hover:border-violet-400 text-gray-700'
+              }`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className={`text-lg font-black font-mono ${gcMode ? 'text-white' : 'text-violet-300'}`}>GC</span>
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${gcMode ? 'bg-white/20 text-white' : 'bg-violet-50 text-violet-400'}`}>gen</span>
               </div>
               <p className="text-sm font-semibold">Generic coil</p>
-              <p className={`text-xs mt-0.5 ${genericMode ? 'text-indigo-200' : 'text-gray-400'}`}>
-                Custom junction-based geometry
-              </p>
-              <p className={`text-xs mt-1 font-medium ${genericMode ? 'text-indigo-100' : 'text-gray-400'}`}>
-                Enter junctions manually
-              </p>
+              <p className={`text-xs mt-0.5 ${gcMode ? 'text-violet-200' : 'text-gray-400'}`}>Per-pass with parallel tubes</p>
+              <p className={`text-xs mt-1 font-medium ${gcMode ? 'text-violet-100' : 'text-gray-400'}`}>Coil configuration + spacing</p>
             </button>
           </div>
           <Nav step={step} total={STEPS.length} onBack={back} onNext={next} />
@@ -758,129 +882,293 @@ function DesignCaseWizard() {
               </div>
 
               {genericMode ? (
-                /* ── Generic coil: junction table editor ────────────────── */
-                <div className="space-y-4">
+                /* ── New coil geometry OR Generic coil ──────────────────── */
+                gcMode ? (
 
-                  {/* Import from file shortcut */}
-                  <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-3">
-                    <p className="text-xs text-gray-500 flex-1">
-                      Have an existing <code className="font-mono bg-white px-1 rounded border border-gray-200">reactor.txt</code>? Upload it to pre-fill the table below.
-                    </p>
-                    <label className="cursor-pointer shrink-0">
-                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-                        Import from file
-                      </span>
-                      <input type="file" accept=".txt" className="hidden"
-                        onChange={e => { const f = e.target.files?.[0]; if (f) handleReactorTxtUpload(f) }} />
-                    </label>
-                    {reactorTxtName && (
-                      <span className="text-xs text-emerald-600 font-medium shrink-0">{reactorTxtName}</span>
-                    )}
-                  </div>
-
-                  {/* Junction table */}
-                  <div className="card p-0 overflow-hidden">
-                    <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Junctions</p>
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          One row per junction. Bend angle 0 = straight; π ≈ 3.1416 = U-bend. Tube type: 1 = smooth, 3 = rifled fin.
-                        </p>
+                  /* ── Generic coil (per-pass, parallel tubes) ─────────── */
+                  <div className="space-y-4">
+                    {/* Coil configuration + import */}
+                    <div className="card space-y-3">
+                      <div className="flex items-center gap-4">
+                        <div className="flex-1">
+                          <label className="block text-xs text-gray-500 mb-1">Coil configuration</label>
+                          <select value={gcConfig} onChange={e => setGcConfig(e.target.value)} className={inp}>
+                            {GENERIC_COIL_CONFIGS.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-xs text-gray-500 mb-1">Number of joining coil assemblies</label>
+                          <input type="number" min={1} value={gcJoining}
+                            onChange={e => setGcJoining(e.target.value)} className={inp} />
+                        </div>
                       </div>
-                      <button onClick={addJunc}
-                        className="flex items-center gap-1 text-xs font-medium text-gray-700 border border-gray-200 bg-white rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors shrink-0">
-                        + Add junction
-                      </button>
                     </div>
-                    <div className="overflow-auto max-h-80">
+
+                    {/* Pass table */}
+                    <div className="card p-0 overflow-hidden">
+                      <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Passes</p>
+                          <p className="text-xs text-gray-400 mt-0.5">One row per pass. Diameter is tube internal diameter.</p>
+                        </div>
+                        <button onClick={addGcPass}
+                          className="text-xs font-medium text-gray-700 border border-gray-200 bg-white rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors">
+                          + Add pass
+                        </button>
+                      </div>
                       <table className="w-full text-xs">
-                        <thead className="bg-gray-50/80 sticky top-0">
+                        <thead className="bg-gray-50/80">
                           <tr>
-                            {['#', 'Axial z (m)', 'OD (mm)', 'Wall (mm)', 'Bend angle (rad)', 'Bend radius (m)', 'Tube type', 'Mass flow', 'Adiabatic', ''].map(h => (
-                              <th key={h} className="text-left px-2 py-2 text-gray-400 font-semibold uppercase tracking-wide text-[10px] whitespace-nowrap">{h}</th>
+                            {['Pass ID', 'Straight heated tube length (m)', 'Tube internal diameter (m)', 'Tube wall thickness (m)', 'No. parallel tubes', ''].map(h => (
+                              <th key={h} className="text-left px-3 py-2 text-gray-400 font-semibold uppercase tracking-wide text-[10px] whitespace-nowrap">{h}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
-                          {juncRows.map((j, idx) => (
-                            <tr key={j._key} className={`border-t border-gray-50 ${j.adiabatic ? 'bg-amber-50/60' : 'hover:bg-gray-50/50'}`}>
-                              <td className="px-2 py-1 font-mono text-gray-400 text-[11px]">{idx + 1}</td>
-                              {(['z', 'od_mm', 'wall_mm', 'angle', 'radius'] as const).map(f => (
-                                <td key={f} className="px-1 py-1">
-                                  <input type="number" step="any" value={j[f]}
-                                    onChange={e => updateJunc(j._key, f, e.target.value)}
-                                    className="w-20 border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900 bg-white" />
+                          {gcPassRows.map((p, idx) => (
+                            <tr key={p._key} className="border-t border-gray-50 hover:bg-gray-50/50">
+                              <td className="px-3 py-1.5 font-mono text-gray-400 text-[11px]">{idx + 1}</td>
+                              {(['tube_length', 'int_dia', 'wall_mm', 'n_parallel'] as const).map(f => (
+                                <td key={f} className="px-2 py-1">
+                                  <input type="number" step="any" value={p[f]}
+                                    onChange={e => updateGcPass(p._key, f, e.target.value)}
+                                    className="w-28 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900 bg-white" />
                                 </td>
                               ))}
-                              <td className="px-1 py-1">
-                                <select value={j.tube_type}
-                                  onChange={e => updateJunc(j._key, 'tube_type', Number(e.target.value))}
-                                  className="border border-gray-200 rounded px-1.5 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-gray-900">
-                                  <option value={1}>1 — Smooth</option>
-                                  <option value={3}>3 — Rifled fin</option>
-                                </select>
-                              </td>
-                              <td className="px-1 py-1">
-                                <input type="number" step="0.1" value={j.mass_flow}
-                                  onChange={e => updateJunc(j._key, 'mass_flow', e.target.value)}
-                                  className="w-16 border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900 bg-white" />
-                              </td>
                               <td className="px-2 py-1">
-                                <input type="checkbox" checked={j.adiabatic}
-                                  onChange={e => updateJunc(j._key, 'adiabatic', e.target.checked)}
-                                  className="w-3.5 h-3.5 accent-amber-600" />
-                              </td>
-                              <td className="px-2 py-1">
-                                <button onClick={() => removeJunc(j._key)}
-                                  className="text-gray-300 hover:text-red-500 transition-colors font-medium text-[11px]">✕</button>
+                                <button onClick={() => removeGcPass(p._key)} className="text-gray-300 hover:text-red-500 text-[11px]">✕</button>
                               </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
-                    <div className="px-4 py-2 border-t border-gray-100 bg-gray-50/50 text-[11px] text-gray-400">
-                      {juncRows.length} junction{juncRows.length !== 1 ? 's' : ''} defined
+
+                    {/* Connections */}
+                    <div className="card p-0 overflow-hidden">
+                      <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Centreline Spacing Between Passes</p>
+                        <button onClick={addGcConn}
+                          className="text-xs font-medium text-gray-700 border border-gray-200 bg-white rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors">
+                          + Add
+                        </button>
+                      </div>
+                      {gcConnRows.length === 0 ? (
+                        <p className="px-4 py-3 text-xs text-gray-400">No connections defined — optional.</p>
+                      ) : (
+                        <table className="w-full text-xs">
+                          <thead className="bg-gray-50/80">
+                            <tr>
+                              {['From pass', 'To pass', 'Centreline spacing (m)', ''].map(h => (
+                                <th key={h} className="text-left px-3 py-2 text-gray-400 font-semibold uppercase tracking-wide text-[10px]">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {gcConnRows.map(c => (
+                              <tr key={c._key} className="border-t border-gray-50">
+                                {(['from_pass', 'to_pass', 'cl_spacing'] as const).map(f => (
+                                  <td key={f} className="px-2 py-1">
+                                    <input type="number" step="any" value={c[f]}
+                                      onChange={e => updateGcConn(c._key, f, e.target.value)}
+                                      className="w-24 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900 bg-white" />
+                                  </td>
+                                ))}
+                                <td className="px-2 py-1">
+                                  <button onClick={() => removeGcConn(c._key)} className="text-gray-300 hover:text-red-500 text-[11px]">✕</button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+
+                    {/* Adiabatic volume */}
+                    <div className="card space-y-3">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" checked={gcHasAdvol} onChange={e => setGcHasAdvol(e.target.checked)}
+                          className="w-4 h-4 rounded accent-gray-900" />
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">Adiabatic volume</p>
+                          <p className="text-xs text-gray-400">Transfer line volume after coil outlet</p>
+                        </div>
+                      </label>
+                      {gcHasAdvol && (
+                        <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gray-100">
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Internal volume (×10⁻³ m³)</label>
+                            <input type="number" step="any" value={gcAdVolume}
+                              onChange={e => setGcAdVolume(e.target.value)} className={inp} />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Internal equivalent diameter (m)</label>
+                            <input type="number" step="any" value={gcAdDia}
+                              onChange={e => setGcAdDia(e.target.value)} className={inp} />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* Global properties */}
-                  <div className="card space-y-4">
-                    <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Global Coil Properties</p>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs text-gray-500 mb-1">Tube material code</label>
-                        <input type="number" min={1} max={30} value={genericMat}
-                          onChange={e => setGenericMat(e.target.value)}
-                          className={inp} />
-                        <p className="text-[10px] text-gray-400 mt-0.5">
-                          1=21-4N  2=AISI314  5=HK40  6=HP40  14=Incoloy800H  19=custom
-                        </p>
+                ) : (
+
+                  /* ── New coil geometry (junction-based, ncoil=1) ─────── */
+                  <div className="space-y-4">
+
+                    {/* Import from file shortcut */}
+                    <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-3">
+                      <p className="text-xs text-gray-500 flex-1">
+                        Have an existing <code className="font-mono bg-white px-1 rounded border border-gray-200">reactor.txt</code>? Upload it to pre-fill the table.
+                      </p>
+                      <label className="cursor-pointer shrink-0">
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+                          Import from file
+                        </span>
+                        <input type="file" accept=".txt" className="hidden"
+                          onChange={e => { const f = e.target.files?.[0]; if (f) handleReactorTxtUpload(f) }} />
+                      </label>
+                      {reactorTxtName && <span className="text-xs text-emerald-600 font-medium shrink-0">{reactorTxtName}</span>}
+                    </div>
+
+                    {/* Junction table — matches CoilSim "New coil geometry" columns exactly */}
+                    <div className="card p-0 overflow-hidden">
+                      <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Junctions (max 200)</p>
+                          <p className="text-xs text-gray-400 mt-0.5">Angle bend: 0 = straight, π ≈ 3.1416 = U-bend. OD = outer diameter (mm).</p>
+                        </div>
+                        <button onClick={addJunc}
+                          className="text-xs font-medium text-gray-700 border border-gray-200 bg-white rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors shrink-0">
+                          + Add junction
+                        </button>
                       </div>
-                      <div>
-                        <label className="block text-xs text-gray-500 mb-1">Correction flags (4 integers)</label>
-                        <input value={corrFlags} onChange={e => setCorrFlags(e.target.value)}
-                          placeholder="0 1 0 0" className={inp} />
-                        <p className="text-[10px] text-gray-400 mt-0.5">Space-separated. e.g. <code className="font-mono">0 1 1 1</code> for UTDFUR</p>
+                      <div className="overflow-x-auto">
+                        <table className="text-xs" style={{ minWidth: '1100px' }}>
+                          <thead className="bg-gray-50/80">
+                            <tr>
+                              {[
+                                '#', 'Axial position (m)', 'OD (mm)', 'Angle bend (rad)', 'Radius bend (m)',
+                                'Mass flow factor', 'Wall thickness (mm)', 'Tube Material', 'Tube Type',
+                                'Fin distance (m)', 'Pitch (m)', 'Perim. ratio', 'Adiabatic', '',
+                              ].map(h => (
+                                <th key={h} className="text-left px-2 py-2 text-gray-400 font-semibold uppercase tracking-wide text-[10px] whitespace-nowrap">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {juncRows.map((j, idx) => (
+                              <tr key={j._key} className={`border-t border-gray-50 ${j.adiabatic ? 'bg-amber-50/60' : 'hover:bg-gray-50/40'}`}>
+                                <td className="px-2 py-1 font-mono text-gray-400 text-[11px]">{idx + 1}</td>
+                                {(['z', 'od_mm', 'angle', 'radius', 'mass_flow', 'wall_mm'] as const).map(f => (
+                                  <td key={f} className="px-1 py-1">
+                                    <input type="number" step="any" value={j[f]}
+                                      onChange={e => updateJunc(j._key, f, e.target.value)}
+                                      className="w-20 border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white" />
+                                  </td>
+                                ))}
+                                <td className="px-1 py-1">
+                                  <select value={j.tube_material_code}
+                                    onChange={e => updateJunc(j._key, 'tube_material_code', Number(e.target.value))}
+                                    className="border border-gray-200 rounded px-1.5 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500" style={{ minWidth: 160 }}>
+                                    {JUNCTION_TUBE_MATERIALS.map(m => (
+                                      <option key={m.code} value={m.code}>{m.label}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td className="px-1 py-1">
+                                  <select value={j.tube_type_code}
+                                    onChange={e => updateJunc(j._key, 'tube_type_code', Number(e.target.value))}
+                                    className="border border-gray-200 rounded px-1.5 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500" style={{ minWidth: 120 }}>
+                                    {JUNCTION_TUBE_TYPES.map(t => (
+                                      <option key={t.code} value={t.code}>{t.label}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                {(['fin_dist', 'pitch', 'perim_ratio'] as const).map(f => (
+                                  <td key={f} className="px-1 py-1">
+                                    <input type="number" step="any" value={j[f]}
+                                      onChange={e => updateJunc(j._key, f, e.target.value)}
+                                      className="w-16 border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white" />
+                                  </td>
+                                ))}
+                                <td className="px-2 py-1 text-center">
+                                  <input type="checkbox" checked={j.adiabatic}
+                                    onChange={e => updateJunc(j._key, 'adiabatic', e.target.checked)}
+                                    className="w-3.5 h-3.5 accent-amber-600" />
+                                </td>
+                                <td className="px-2 py-1">
+                                  <button onClick={() => removeJunc(j._key)}
+                                    className="text-gray-300 hover:text-red-500 text-[11px]">✕</button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
-                      <div>
-                        <label className="block text-xs text-gray-500 mb-1">Entering angle (rad)</label>
-                        <input type="number" step="any" value={enterAngle}
-                          onChange={e => setEnterAngle(e.target.value)}
-                          className={inp} />
-                        <p className="text-[10px] text-gray-400 mt-0.5">π ≈ 3.14159 = axial entry</p>
-                      </div>
-                      <div>
-                        <label className="block text-xs text-gray-500 mb-1">Gas corr. code</label>
-                        <select value={genericGas} onChange={e => setGenericGas(e.target.value)} className={inp}>
-                          <option value="1">1 — Modified Eucken</option>
-                          <option value="2">2 — Eucken</option>
-                          <option value="3">3 — Wassiljewa</option>
-                        </select>
+                      <div className="px-4 py-2 border-t border-gray-100 bg-gray-50/50 text-[11px] text-gray-400">
+                        {juncRows.length} / 200 junctions
                       </div>
                     </div>
+
+                    {/* Global settings + adiabatic volume */}
+                    <div className="card space-y-4">
+                      <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Global Settings</p>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Gas Conductivity Correlation</label>
+                          <select value={genericGas} onChange={e => setGenericGas(e.target.value)} className={inp}>
+                            {GAS_CONDUCTIVITY_CORRS.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Entering Angle (rad)</label>
+                          <input type="number" step="any" value={enterAngle}
+                            onChange={e => setEnterAngle(e.target.value)} className={inp} />
+                          <p className="text-[10px] text-gray-400 mt-0.5">π ≈ 3.14159 for axial entry</p>
+                        </div>
+                        <div className="col-span-2">
+                          <label className="block text-xs text-gray-500 mb-1">Correction flags (4 integers, space-separated)</label>
+                          <input value={corrFlags} onChange={e => setCorrFlags(e.target.value)}
+                            placeholder="0 1 0 0" className={inp} />
+                          <p className="text-[10px] text-gray-400 mt-0.5">e.g. <code className="font-mono">0 1 1 1</code> for UTDFUR/rifled fin coils</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Adiabatic volume */}
+                    <div className="card">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" checked={juncHasAdvol} onChange={e => setJuncHasAdvol(e.target.checked)}
+                          className="w-4 h-4 rounded accent-gray-900" />
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">Adiabatic volume</p>
+                          <p className="text-xs text-gray-400">Transfer line volume after coil outlet before TLE quench</p>
+                        </div>
+                      </label>
+                      {juncHasAdvol && (
+                        <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-gray-100">
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Volume (×10⁻³ m³)</label>
+                            <input type="number" step="any" value={juncAdVol}
+                              onChange={e => setJuncAdVol(e.target.value)} className={inp} />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Diameter (m)</label>
+                            <input type="number" step="any" value={juncAdDia}
+                              onChange={e => setJuncAdDia(e.target.value)} className={inp} />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Wall thickness (m)</label>
+                            <input type="number" step="any" value={juncAdWall}
+                              onChange={e => setJuncAdWall(e.target.value)} className={inp} />
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
+
+                )
               ) : (
                 /* ── Standard coil: legs table + piping properties ──────── */
                 <>

@@ -19,28 +19,41 @@ export async function POST(req: NextRequest) {
             adiabatic_diameter, adiabatic_wall,
             pre_volume_enabled, pre_volume_length } = body
 
-    const isGenericData   = generic_data?.junctions?.length > 0
+    const isNewCoilGeo    = generic_data?.junctions?.length > 0
+    const isGenericCoil   = generic_data?._generic_coil === true && generic_data?.passes?.length > 0
     const isGenericUpload = typeof reactor_txt === 'string' && reactor_txt.length > 0
-    const isGeneric       = isGenericData || isGenericUpload
+    const isGeneric       = isNewCoilGeo || isGenericCoil || isGenericUpload
 
     if (!name || !ncoil || (!isGeneric && !legs?.length)) {
       return NextResponse.json(
-        { error: 'Missing required fields: name, ncoil, and either legs (standard) or generic_data.junctions (generic coil)' },
+        { error: 'Missing required fields: name, ncoil, and either legs (standard) or generic_data (new coil geometry / generic coil)' },
         { status: 400 }
       )
     }
 
     let extra: Record<string, unknown> = {}
-    if (isGenericData) {
-      // Store junction data in the legs JSONB under _generic key so the worker can detect it
+    if (isNewCoilGeo) {
+      // New coil geometry — junction-based (ncoil=1)
       extra = {
         _generic:           true,
         junctions:          generic_data.junctions,
-        tube_material_code: Number(generic_data.tube_material_code ?? 14),
         correction_flags:   generic_data.correction_flags ?? [0, 1, 0, 0],
         entering_angle:     Number(generic_data.entering_angle ?? Math.PI),
         gas_corr_code:      Number(generic_data.gas_corr_code ?? 1),
-        mass_flow_factor:   Number(generic_data.mass_flow_factor ?? 1.0),
+        adiabatic_volume:   generic_data.adiabatic_volume  ?? null,
+        adiabatic_diameter: generic_data.adiabatic_diameter ?? null,
+        adiabatic_wall:     generic_data.adiabatic_wall     ?? null,
+      }
+    } else if (isGenericCoil) {
+      // Generic coil — per-pass with parallel tubes
+      extra = {
+        _generic_coil:      true,
+        coil_config:        generic_data.coil_config   ?? 'Single pass',
+        joining:            Number(generic_data.joining ?? 1),
+        passes:             generic_data.passes,
+        connections:        generic_data.connections   ?? [],
+        adiabatic_volume:   generic_data.adiabatic_volume   ?? null,
+        adiabatic_diameter: generic_data.adiabatic_diameter ?? null,
       }
     } else {
       if (perimeter_ratio    != null) extra.perimeter_ratio      = Number(perimeter_ratio)
