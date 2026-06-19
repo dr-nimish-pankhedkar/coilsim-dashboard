@@ -890,8 +890,8 @@ function DesignCaseWizard() {
           </div>
           {/* Back only — Continue is replaced by card click auto-advance */}
           <div className="flex items-center justify-between pt-6 mt-6 border-t border-gray-100">
-            <button onClick={back} disabled={step === 0}
-              className="text-sm text-gray-400 hover:text-gray-700 disabled:opacity-0 transition-colors flex items-center gap-1">
+            <button onClick={back}
+              className="text-sm text-gray-400 hover:text-gray-700 transition-colors flex items-center gap-1">
               ← Back
             </button>
           </div>
