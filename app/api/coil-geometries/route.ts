@@ -23,8 +23,10 @@ export async function POST(req: NextRequest) {
     const isGenericCoil   = generic_data?._generic_coil === true && generic_data?.passes?.length > 0
     const isGenericUpload = typeof reactor_txt === 'string' && reactor_txt.length > 0
     const isGeneric       = isNewCoilGeo || isGenericCoil || isGenericUpload
+    // ncoil=0 signals an import path (reactor_txt verbatim) — accept legs=[]
+    const isImportPath    = Number(ncoil) === 0 && isGenericUpload
 
-    if (!name || !ncoil || (!isGeneric && !legs?.length)) {
+    if (!name || (ncoil == null) || (!isGeneric && !isImportPath && !legs?.length)) {
       return NextResponse.json(
         { error: 'Missing required fields: name, ncoil, and either legs (standard) or generic_data (new coil geometry / generic coil)' },
         { status: 400 }

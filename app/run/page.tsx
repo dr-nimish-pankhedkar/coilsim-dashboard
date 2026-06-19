@@ -222,7 +222,11 @@ function DesignCaseWizard() {
   const [projName, setProjName] = useState('')
   const [useMode,  setUseMode]  = useState<'new'|'saved'>('new')
 
-  // ── Step 1: Coil type ────────────────────────────────────────────────────
+  // ── Step 1: Geometry selection ──────────────────────────────────────────
+  const [geomSelection, setGeomSelection] = useState<'new'|'standard'|'import'|'generic' | null>(null)
+  const [importGeomSubStep, setImportGeomSubStep] = useState<'coil_list'|'legs'>('coil_list')
+
+  // ── Step 1: Coil type (legacy name kept for state) ───────────────────────
   const [selectedCoilType, setSelectedCoilType] = useState(COIL_TYPES[0])
 
   // ── Step 2: Geometry ─────────────────────────────────────────────────────
@@ -328,7 +332,7 @@ function DesignCaseWizard() {
     setGcMode(false)
     setPasses(ct.passes)
     setLegs(Array.from({ length: ct.passes }, (_, i) => defaultLeg(i)))
-    setTimeout(() => setStep(s => s + 1), 80)   // brief flash so selection is visible, then advance
+    setImportGeomSubStep('legs')  // switch to legs sub-step, do NOT auto-advance
   }
 
   function handlePassesChange(n: number) {
@@ -565,7 +569,7 @@ function DesignCaseWizard() {
           ? { pre_volume_enabled: true, pre_volume_length: Number(preVolLength) }
           : { pre_volume_enabled: false }
 
-        const coilBody = genericMode && gcMode
+        const coilBody = geomSelection === 'generic'
           ? {
               /* Generic coil — per-pass with parallel tubes */
               name: coilName || `GenericCoil_${projName}`,
@@ -590,7 +594,7 @@ function DesignCaseWizard() {
                 adiabatic_diameter: gcHasAdvol ? parseFloat(gcAdDia)    : null,
               },
             }
-          : genericMode && !gcMode
+          : geomSelection === 'new'
           ? {
               /* New coil geometry — junction-based (ncoil=1) */
               name: coilName || `NewCoilGeo_${projName}`,
@@ -618,7 +622,15 @@ function DesignCaseWizard() {
                 adiabatic_wall:     juncHasAdvol ? parseFloat(juncAdWall) : null,
               },
             }
+          : geomSelection === 'import'
+          ? {
+              /* Import coil geometry — reactor_txt stored verbatim */
+              name: coilName || `ImportedCoil_${projName}`,
+              ncoil: 0, legs: [], adiabatic_flag: false,
+              reactor_txt: reactorTxtContent,
+            }
           : {
+              /* Standard named coil — legs-based */
               name: coilName || `${selectedCoilType.name}_${projName}`,
               ncoil: selectedCoilType.ncoil, legs: legsPayload,
               adiabatic_flag: hasAdvol, ...advolPayload, ...prevolPayload,
@@ -683,10 +695,14 @@ function DesignCaseWizard() {
   // ── Step validation ──────────────────────────────────────────────────────
   function canProceed() {
     if (step === 0) return projName.trim().length > 0
+    if (step === 1) return geomSelection !== null  // auto-advances on card click, but kept for safety
     if (step === 2 && useMode === 'new') {
-      if (genericMode && gcMode) return gcPassRows.length > 0
-      if (genericMode && !gcMode) return juncRows.length > 0
-      return legs.length > 0
+      if (geomSelection === 'standard' && importGeomSubStep === 'coil_list') return true
+      if (geomSelection === 'standard' && importGeomSubStep === 'legs') return legs.length > 0
+      if (geomSelection === 'new') return juncRows.length > 0
+      if (geomSelection === 'import') return reactorTxtContent !== null
+      if (geomSelection === 'generic') return gcPassRows.length > 0
+      return true
     }
     if (step === 3 && useMode === 'new') return comps.length > 0 && feedName.trim().length > 0
     if (step === 4) return cotVal.trim().length > 0 && flow.trim().length > 0
@@ -696,12 +712,15 @@ function DesignCaseWizard() {
 
   function next() { if (step < STEPS.length - 1) setStep(s => s + 1) }
   function back() {
-    if (step > 0) {
-      setStep(s => s - 1)
-      // Reset submit state so the review page shows the Submit button again
-      setSubmitState('idle')
-      setSubmitMsg('')
+    // Reset submit state so the review page shows the Submit button again
+    setSubmitState('idle')
+    setSubmitMsg('')
+    if (step === 2 && geomSelection === 'standard' && importGeomSubStep === 'legs') {
+      // Back within standard sub-step: go to coil_list, don't decrement step
+      setImportGeomSubStep('coil_list')
+      return
     }
+    if (step > 0) setStep(s => s - 1)
   }
 
   const sev = SEVERITY_OPTIONS.find(o => o.value === sevType) ?? SEVERITY_OPTIONS[0]
@@ -785,396 +804,170 @@ function DesignCaseWizard() {
         </div>
       )}
 
-      {/* ── STEP 1: Coil Type ─────────────────────────────────────────────── */}
+      {/* ── STEP 1: Geometry Selection ────────────────────────────────────── */}
       {step === 1 && (
         <div className="space-y-6">
           <div>
-            <h2 className="text-base font-semibold text-gray-900">Coil Type</h2>
-            <p className="text-sm text-gray-400 mt-1">Select the furnace coil configuration. This sets the <code className="text-xs font-mono bg-gray-100 px-1 rounded">ncoil</code> parameter and pre-fills the number of passes.</p>
+            <h2 className="text-base font-semibold text-gray-900">Geometry</h2>
+            <p className="text-sm text-gray-400 mt-1">Select how to define the furnace coil geometry, mirroring CoilSim's geometry dialog.</p>
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            {COIL_TYPES.map(ct => (
-              <button key={ct.ncoil}
-                onClick={() => { handleCoilTypeSelect(ct); setGenericMode(false) }}
-                className={`rounded-xl border p-4 text-left transition-all hover:shadow-sm ${
-                  !genericMode && selectedCoilType.ncoil === ct.ncoil
-                    ? 'border-gray-900 bg-gray-900 text-white shadow'
-                    : 'border-gray-200 hover:border-gray-400 text-gray-700'
-                }`}>
-                <div className="flex items-center justify-between mb-2">
-                  <span className={`text-lg font-black font-mono ${!genericMode && selectedCoilType.ncoil === ct.ncoil ? 'text-white' : 'text-gray-300'}`}>
-                    {ct.icon}
-                  </span>
-                  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-                    !genericMode && selectedCoilType.ncoil === ct.ncoil ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400'
-                  }`}>n={ct.ncoil}</span>
-                </div>
-                <p className="text-sm font-semibold">{ct.name}</p>
-                <p className={`text-xs mt-0.5 ${!genericMode && selectedCoilType.ncoil === ct.ncoil ? 'text-gray-300' : 'text-gray-400'}`}>
-                  {ct.desc}
-                </p>
-                <p className={`text-xs mt-1 font-medium ${!genericMode && selectedCoilType.ncoil === ct.ncoil ? 'text-gray-200' : 'text-gray-400'}`}>
-                  {ct.passes} passes
-                </p>
-              </button>
-            ))}
+          <div className="grid grid-cols-2 gap-4">
 
-            {/* New coil geometry — junction-based (CoilSim "New coil geometry") */}
+            {/* Card 1 — New coil geometry */}
             <button
-              onClick={() => { setGenericMode(true); setGcMode(false); setTimeout(() => setStep(s => s + 1), 80) }}
-              className={`rounded-xl border p-4 text-left transition-all hover:shadow-sm ${
-                genericMode && !gcMode
+              onClick={() => { setGeomSelection('new'); setGenericMode(true); setGcMode(false); setTimeout(() => setStep(s => s + 1), 80) }}
+              className={`rounded-xl border p-5 text-left transition-all hover:shadow-sm relative ${
+                geomSelection === 'new'
                   ? 'border-indigo-600 bg-indigo-600 text-white shadow'
                   : 'border-dashed border-indigo-200 hover:border-indigo-400 text-gray-700'
               }`}>
-              <div className="flex items-center justify-between mb-2">
-                <span className={`text-lg font-black font-mono ${genericMode && !gcMode ? 'text-white' : 'text-indigo-300'}`}>NC</span>
-                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${genericMode && !gcMode ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-400'}`}>n=1</span>
+              <div className="flex items-start justify-between mb-3">
+                <p className="text-sm font-semibold">New coil geometry</p>
+                <div className="flex gap-1">
+                  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${geomSelection === 'new' ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-500'}`}>NC</span>
+                  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${geomSelection === 'new' ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-500'}`}>n=1</span>
+                </div>
               </div>
-              <p className="text-sm font-semibold">New coil geometry</p>
-              <p className={`text-xs mt-0.5 ${genericMode && !gcMode ? 'text-indigo-200' : 'text-gray-400'}`}>Junction-by-junction definition</p>
-              <p className={`text-xs mt-1 font-medium ${genericMode && !gcMode ? 'text-indigo-100' : 'text-gray-400'}`}>Up to 200 junctions</p>
+              <p className={`text-xs leading-relaxed ${geomSelection === 'new' ? 'text-indigo-100' : 'text-gray-400'}`}>
+                Junction-by-junction definition · Up to 200 junctions
+              </p>
             </button>
 
-            {/* Generic coil — per-pass with parallel tubes (CoilSim "Generic coil") */}
+            {/* Card 2 — Standardized industrial coils */}
             <button
-              onClick={() => { setGenericMode(true); setGcMode(true); setTimeout(() => setStep(s => s + 1), 80) }}
-              className={`rounded-xl border p-4 text-left transition-all hover:shadow-sm ${
-                gcMode
+              onClick={() => { setGeomSelection('standard'); setGenericMode(false); setGcMode(false); setImportGeomSubStep('coil_list'); setTimeout(() => setStep(s => s + 1), 80) }}
+              className={`rounded-xl border p-5 text-left transition-all hover:shadow-sm ${
+                geomSelection === 'standard'
+                  ? 'border-gray-900 bg-gray-900 text-white shadow'
+                  : 'border-gray-200 hover:border-gray-400 text-gray-700'
+              }`}>
+              <div className="flex items-start justify-between mb-3">
+                <p className="text-sm font-semibold">Standardized industrial coils</p>
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${geomSelection === 'standard' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>STD</span>
+              </div>
+              <p className={`text-xs leading-relaxed ${geomSelection === 'standard' ? 'text-gray-300' : 'text-gray-400'}`}>
+                Named industrial coil geometries · W-coil, U-coil, SRT variants, Millisecond, Technip, Linde, SL-2, M-coil
+              </p>
+            </button>
+
+            {/* Card 3 — Import coil geometry */}
+            <button
+              onClick={() => { setGeomSelection('import'); setGenericMode(false); setGcMode(false); setTimeout(() => setStep(s => s + 1), 80) }}
+              className={`rounded-xl border p-5 text-left transition-all hover:shadow-sm ${
+                geomSelection === 'import'
+                  ? 'border-amber-500 bg-amber-500 text-white shadow'
+                  : 'border-dashed border-amber-200 hover:border-amber-400 text-gray-700'
+              }`}>
+              <div className="flex items-start justify-between mb-3">
+                <p className="text-sm font-semibold">Import coil geometry</p>
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${geomSelection === 'import' ? 'bg-white/20 text-white' : 'bg-amber-50 text-amber-500'}`}>IMP</span>
+              </div>
+              <p className={`text-xs leading-relaxed ${geomSelection === 'import' ? 'text-amber-100' : 'text-gray-400'}`}>
+                Upload an existing reactor.txt file · Stored verbatim, no editing required
+              </p>
+            </button>
+
+            {/* Card 4 — Generic coil */}
+            <button
+              onClick={() => { setGeomSelection('generic'); setGenericMode(true); setGcMode(true); setTimeout(() => setStep(s => s + 1), 80) }}
+              className={`rounded-xl border p-5 text-left transition-all hover:shadow-sm ${
+                geomSelection === 'generic'
                   ? 'border-violet-600 bg-violet-600 text-white shadow'
                   : 'border-dashed border-violet-200 hover:border-violet-400 text-gray-700'
               }`}>
-              <div className="flex items-center justify-between mb-2">
-                <span className={`text-lg font-black font-mono ${gcMode ? 'text-white' : 'text-violet-300'}`}>GC</span>
-                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${gcMode ? 'bg-white/20 text-white' : 'bg-violet-50 text-violet-400'}`}>gen</span>
+              <div className="flex items-start justify-between mb-3">
+                <p className="text-sm font-semibold">Generic coil</p>
+                <div className="flex gap-1">
+                  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${geomSelection === 'generic' ? 'bg-white/20 text-white' : 'bg-violet-50 text-violet-500'}`}>GC</span>
+                  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${geomSelection === 'generic' ? 'bg-white/20 text-white' : 'bg-violet-50 text-violet-500'}`}>gen</span>
+                </div>
               </div>
-              <p className="text-sm font-semibold">Generic coil</p>
-              <p className={`text-xs mt-0.5 ${gcMode ? 'text-violet-200' : 'text-gray-400'}`}>Per-pass with parallel tubes</p>
-              <p className={`text-xs mt-1 font-medium ${gcMode ? 'text-violet-100' : 'text-gray-400'}`}>Coil configuration + spacing</p>
+              <p className={`text-xs leading-relaxed ${geomSelection === 'generic' ? 'text-violet-100' : 'text-gray-400'}`}>
+                Per-pass with parallel tubes · Coil configuration + centreline spacing
+              </p>
+            </button>
+
+          </div>
+          {/* Back only — Continue is replaced by card click auto-advance */}
+          <div className="flex items-center justify-between pt-6 mt-6 border-t border-gray-100">
+            <button onClick={back} disabled={step === 0}
+              className="text-sm text-gray-400 hover:text-gray-700 disabled:opacity-0 transition-colors flex items-center gap-1">
+              ← Back
             </button>
           </div>
-          <Nav step={step} total={STEPS.length} onBack={back} onNext={next} />
         </div>
       )}
 
       {/* ── STEP 2: Geometry ──────────────────────────────────────────────── */}
       {step === 2 && (
         <div className="space-y-6">
-          <div>
-            <h2 className="text-base font-semibold text-gray-900">Coil Geometry</h2>
-            <p className="text-sm text-gray-400 mt-1">
-              {genericMode
-                ? 'Define junction-based geometry for a Generic coil. Enter each junction\'s dimensions, bend angles, and tube properties.'
-                : <>Define tube dimensions for each pass. Pre-filled with typical values for a <strong>{selectedCoilType.name}</strong>.</>}
-            </p>
-          </div>
 
           {useMode === 'saved' ? (
-            <div className="card">
-              <p className="text-sm text-gray-500">Using saved geometry — no edits required.</p>
-            </div>
-          ) : (
             <>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Coil Geometry</h2>
+              </div>
+              <div className="card">
+                <p className="text-sm text-gray-500">Using saved geometry — no edits required.</p>
+              </div>
+              <Nav step={step} total={STEPS.length} onBack={back} onNext={next} disabled={!canProceed()} />
+            </>
+          ) : geomSelection === 'standard' && importGeomSubStep === 'coil_list' ? (
+
+            /* ── Standard: coil list ──────────────────────────────────── */
+            <>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Standardized Industrial Coils</h2>
+                <p className="text-sm text-gray-400 mt-1">Select a named industrial coil geometry. This sets ncoil and pre-fills the pass dimensions.</p>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                {COIL_TYPES.map(ct => (
+                  <button key={ct.ncoil}
+                    onClick={() => handleCoilTypeSelect(ct)}
+                    className={`rounded-xl border p-4 text-left transition-all hover:shadow-sm ${
+                      selectedCoilType.ncoil === ct.ncoil
+                        ? 'border-gray-900 bg-gray-900 text-white shadow'
+                        : 'border-gray-200 hover:border-gray-400 text-gray-700'
+                    }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`text-lg font-black font-mono ${selectedCoilType.ncoil === ct.ncoil ? 'text-white' : 'text-gray-300'}`}>
+                        {ct.icon}
+                      </span>
+                      <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${selectedCoilType.ncoil === ct.ncoil ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                        n={ct.ncoil}
+                      </span>
+                    </div>
+                    <p className="text-sm font-semibold">{ct.name}</p>
+                    <p className={`text-xs mt-0.5 ${selectedCoilType.ncoil === ct.ncoil ? 'text-gray-300' : 'text-gray-400'}`}>
+                      {ct.desc}
+                    </p>
+                    <p className={`text-xs mt-1 font-medium ${selectedCoilType.ncoil === ct.ncoil ? 'text-gray-200' : 'text-gray-400'}`}>
+                      {ct.passes} passes
+                    </p>
+                  </button>
+                ))}
+              </div>
+              <Nav step={step} total={STEPS.length} onBack={back} onNext={next} nextLabel="Configure Geometry →" disabled={!canProceed()} />
+            </>
+
+          ) : geomSelection === 'standard' && importGeomSubStep === 'legs' ? (
+
+            /* ── Standard: legs form ──────────────────────────────────── */
+            <>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Coil Geometry — {selectedCoilType.name}</h2>
+                <p className="text-sm text-gray-400 mt-1">Pre-filled for {selectedCoilType.name}. Adjust dimensions as needed.</p>
+              </div>
+
               {/* Geometry label */}
               <div className="card">
                 <label className="block text-xs text-gray-500 mb-1">Geometry label</label>
                 <input value={coilName}
                   onChange={e => setCoilName(e.target.value)}
-                  placeholder={genericMode ? `Generic_${projName || 'geo'}` : `${selectedCoilType.name}_${projName || 'geo'}`}
+                  placeholder={`${selectedCoilType.name}_${projName || 'geo'}`}
                   className={inp} />
               </div>
 
-              {genericMode ? (
-                /* ── New coil geometry OR Generic coil ──────────────────── */
-                gcMode ? (
-
-                  /* ── Generic coil (per-pass, parallel tubes) ─────────── */
-                  <div className="space-y-4">
-                    {/* Coil configuration + import */}
-                    <div className="card space-y-3">
-                      <div className="flex items-center gap-4">
-                        <div className="flex-1">
-                          <label className="block text-xs text-gray-500 mb-1">Coil configuration</label>
-                          <select value={gcConfig} onChange={e => setGcConfig(e.target.value)} className={inp}>
-                            {GENERIC_COIL_CONFIGS.map(c => <option key={c} value={c}>{c}</option>)}
-                          </select>
-                        </div>
-                        <div className="flex-1">
-                          <label className="block text-xs text-gray-500 mb-1">Number of joining coil assemblies</label>
-                          <input type="number" min={1} value={gcJoining}
-                            onChange={e => setGcJoining(e.target.value)} className={inp} />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Pass table */}
-                    <div className="card p-0 overflow-hidden">
-                      <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Passes</p>
-                          <p className="text-xs text-gray-400 mt-0.5">One row per pass. Diameter is tube internal diameter.</p>
-                        </div>
-                        <button onClick={addGcPass}
-                          className="text-xs font-medium text-gray-700 border border-gray-200 bg-white rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors">
-                          + Add pass
-                        </button>
-                      </div>
-                      <table className="w-full text-xs">
-                        <thead className="bg-gray-50/80">
-                          <tr>
-                            {['Pass ID', 'Straight heated tube length (m)', 'Tube internal diameter (m)', 'Tube wall thickness (m)', 'No. parallel tubes', ''].map(h => (
-                              <th key={h} className="text-left px-3 py-2 text-gray-400 font-semibold uppercase tracking-wide text-[10px] whitespace-nowrap">{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {gcPassRows.map((p, idx) => (
-                            <tr key={p._key} className="border-t border-gray-50 hover:bg-gray-50/50">
-                              <td className="px-3 py-1.5 font-mono text-gray-400 text-[11px]">{idx + 1}</td>
-                              {(['tube_length', 'int_dia', 'wall_mm', 'n_parallel'] as const).map(f => (
-                                <td key={f} className="px-2 py-1">
-                                  <input type="number" step="any" value={p[f]}
-                                    onChange={e => updateGcPass(p._key, f, e.target.value)}
-                                    className="w-28 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900 bg-white" />
-                                </td>
-                              ))}
-                              <td className="px-2 py-1">
-                                <button onClick={() => removeGcPass(p._key)} className="text-gray-300 hover:text-red-500 text-[11px]">✕</button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* Connections */}
-                    <div className="card p-0 overflow-hidden">
-                      <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Centreline Spacing Between Passes</p>
-                        <button onClick={addGcConn}
-                          className="text-xs font-medium text-gray-700 border border-gray-200 bg-white rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors">
-                          + Add
-                        </button>
-                      </div>
-                      {gcConnRows.length === 0 ? (
-                        <p className="px-4 py-3 text-xs text-gray-400">No connections defined — optional.</p>
-                      ) : (
-                        <table className="w-full text-xs">
-                          <thead className="bg-gray-50/80">
-                            <tr>
-                              {['From pass', 'To pass', 'Centreline spacing (m)', ''].map(h => (
-                                <th key={h} className="text-left px-3 py-2 text-gray-400 font-semibold uppercase tracking-wide text-[10px]">{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {gcConnRows.map(c => (
-                              <tr key={c._key} className="border-t border-gray-50">
-                                {(['from_pass', 'to_pass', 'cl_spacing'] as const).map(f => (
-                                  <td key={f} className="px-2 py-1">
-                                    <input type="number" step="any" value={c[f]}
-                                      onChange={e => updateGcConn(c._key, f, e.target.value)}
-                                      className="w-24 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900 bg-white" />
-                                  </td>
-                                ))}
-                                <td className="px-2 py-1">
-                                  <button onClick={() => removeGcConn(c._key)} className="text-gray-300 hover:text-red-500 text-[11px]">✕</button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
-                    </div>
-
-                    {/* Adiabatic volume */}
-                    <div className="card space-y-3">
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input type="checkbox" checked={gcHasAdvol} onChange={e => setGcHasAdvol(e.target.checked)}
-                          className="w-4 h-4 rounded accent-gray-900" />
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">Adiabatic volume</p>
-                          <p className="text-xs text-gray-400">Transfer line volume after coil outlet</p>
-                        </div>
-                      </label>
-                      {gcHasAdvol && (
-                        <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gray-100">
-                          <div>
-                            <label className="block text-xs text-gray-500 mb-1">Internal volume (×10⁻³ m³)</label>
-                            <input type="number" step="any" value={gcAdVolume}
-                              onChange={e => setGcAdVolume(e.target.value)} className={inp} />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-500 mb-1">Internal equivalent diameter (m)</label>
-                            <input type="number" step="any" value={gcAdDia}
-                              onChange={e => setGcAdDia(e.target.value)} className={inp} />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                ) : (
-
-                  /* ── New coil geometry (junction-based, ncoil=1) ─────── */
-                  <div className="space-y-4">
-
-                    {/* Import from file shortcut */}
-                    <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-3">
-                      <p className="text-xs text-gray-500 flex-1">
-                        Have an existing <code className="font-mono bg-white px-1 rounded border border-gray-200">reactor.txt</code>? Upload it to pre-fill the table.
-                      </p>
-                      <label className="cursor-pointer shrink-0">
-                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-                          Import from file
-                        </span>
-                        <input type="file" accept=".txt" className="hidden"
-                          onChange={e => { const f = e.target.files?.[0]; if (f) handleReactorTxtUpload(f) }} />
-                      </label>
-                      {reactorTxtName && <span className="text-xs text-emerald-600 font-medium shrink-0">{reactorTxtName}</span>}
-                    </div>
-
-                    {/* Junction table — matches CoilSim "New coil geometry" columns exactly */}
-                    <div className="card p-0 overflow-hidden">
-                      <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Junctions (max 200)</p>
-                          <p className="text-xs text-gray-400 mt-0.5">Angle bend: 0 = straight, π ≈ 3.1416 = U-bend. OD = outer diameter (mm).</p>
-                        </div>
-                        <button onClick={addJunc}
-                          className="text-xs font-medium text-gray-700 border border-gray-200 bg-white rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors shrink-0">
-                          + Add junction
-                        </button>
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="text-xs" style={{ minWidth: '1100px' }}>
-                          <thead className="bg-gray-50/80">
-                            <tr>
-                              {[
-                                '#', 'Axial position (m)', 'OD (mm)', 'Angle bend (rad)', 'Radius bend (m)',
-                                'Mass flow factor', 'Wall thickness (mm)', 'Tube Material', 'Tube Type',
-                                'Fin distance (m)', 'Pitch (m)', 'Perim. ratio', 'Adiabatic', '',
-                              ].map(h => (
-                                <th key={h} className="text-left px-2 py-2 text-gray-400 font-semibold uppercase tracking-wide text-[10px] whitespace-nowrap">{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {juncRows.map((j, idx) => (
-                              <tr key={j._key} className={`border-t border-gray-50 ${j.adiabatic ? 'bg-amber-50/60' : 'hover:bg-gray-50/40'}`}>
-                                <td className="px-2 py-1 font-mono text-gray-400 text-[11px]">{idx + 1}</td>
-                                {(['z', 'od_mm', 'angle', 'radius', 'mass_flow', 'wall_mm'] as const).map(f => (
-                                  <td key={f} className="px-1 py-1">
-                                    <input type="number" step="any" value={j[f]}
-                                      onChange={e => updateJunc(j._key, f, e.target.value)}
-                                      className="w-20 border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white" />
-                                  </td>
-                                ))}
-                                <td className="px-1 py-1">
-                                  <select value={j.tube_material_code}
-                                    onChange={e => updateJunc(j._key, 'tube_material_code', Number(e.target.value))}
-                                    className="border border-gray-200 rounded px-1.5 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500" style={{ minWidth: 160 }}>
-                                    {JUNCTION_TUBE_MATERIALS.map(m => (
-                                      <option key={m.code} value={m.code}>{m.label}</option>
-                                    ))}
-                                  </select>
-                                </td>
-                                <td className="px-1 py-1">
-                                  <select value={j.tube_type_code}
-                                    onChange={e => updateJunc(j._key, 'tube_type_code', Number(e.target.value))}
-                                    className="border border-gray-200 rounded px-1.5 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500" style={{ minWidth: 120 }}>
-                                    {JUNCTION_TUBE_TYPES.map(t => (
-                                      <option key={t.code} value={t.code}>{t.label}</option>
-                                    ))}
-                                  </select>
-                                </td>
-                                {(['fin_dist', 'pitch', 'perim_ratio'] as const).map(f => (
-                                  <td key={f} className="px-1 py-1">
-                                    <input type="number" step="any" value={j[f]}
-                                      onChange={e => updateJunc(j._key, f, e.target.value)}
-                                      className="w-16 border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white" />
-                                  </td>
-                                ))}
-                                <td className="px-2 py-1 text-center">
-                                  <input type="checkbox" checked={j.adiabatic}
-                                    onChange={e => updateJunc(j._key, 'adiabatic', e.target.checked)}
-                                    className="w-3.5 h-3.5 accent-amber-600" />
-                                </td>
-                                <td className="px-2 py-1">
-                                  <button onClick={() => removeJunc(j._key)}
-                                    className="text-gray-300 hover:text-red-500 text-[11px]">✕</button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      <div className="px-4 py-2 border-t border-gray-100 bg-gray-50/50 text-[11px] text-gray-400">
-                        {juncRows.length} / 200 junctions
-                      </div>
-                    </div>
-
-                    {/* Global settings + adiabatic volume */}
-                    <div className="card space-y-4">
-                      <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Global Settings</p>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs text-gray-500 mb-1">Gas Conductivity Correlation</label>
-                          <select value={genericGas} onChange={e => setGenericGas(e.target.value)} className={inp}>
-                            {GAS_CONDUCTIVITY_CORRS.map(c => <option key={c} value={c}>{c}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-xs text-gray-500 mb-1">Entering Angle (rad)</label>
-                          <input type="number" step="any" value={enterAngle}
-                            onChange={e => setEnterAngle(e.target.value)} className={inp} />
-                          <p className="text-[10px] text-gray-400 mt-0.5">π ≈ 3.14159 for axial entry</p>
-                        </div>
-                        <div className="col-span-2">
-                          <label className="block text-xs text-gray-500 mb-1">Correction flags (4 integers, space-separated)</label>
-                          <input value={corrFlags} onChange={e => setCorrFlags(e.target.value)}
-                            placeholder="0 1 0 0" className={inp} />
-                          <p className="text-[10px] text-gray-400 mt-0.5">e.g. <code className="font-mono">0 1 1 1</code> for UTDFUR/rifled fin coils</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Adiabatic volume */}
-                    <div className="card">
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input type="checkbox" checked={juncHasAdvol} onChange={e => setJuncHasAdvol(e.target.checked)}
-                          className="w-4 h-4 rounded accent-gray-900" />
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">Adiabatic volume</p>
-                          <p className="text-xs text-gray-400">Transfer line volume after coil outlet before TLE quench</p>
-                        </div>
-                      </label>
-                      {juncHasAdvol && (
-                        <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-gray-100">
-                          <div>
-                            <label className="block text-xs text-gray-500 mb-1">Volume (×10⁻³ m³)</label>
-                            <input type="number" step="any" value={juncAdVol}
-                              onChange={e => setJuncAdVol(e.target.value)} className={inp} />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-500 mb-1">Diameter (m)</label>
-                            <input type="number" step="any" value={juncAdDia}
-                              onChange={e => setJuncAdDia(e.target.value)} className={inp} />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-500 mb-1">Wall thickness (m)</label>
-                            <input type="number" step="any" value={juncAdWall}
-                              onChange={e => setJuncAdWall(e.target.value)} className={inp} />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                )
-              ) : (
-                /* ── Standard coil: legs table + piping properties ──────── */
-                <>
               <div className="card space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -1221,10 +1014,8 @@ function DesignCaseWizard() {
                 </table>
               </div>
 
-              {/* Pre-volume + Adiabatic volume — side-by-side matching CoilSim GUI layout */}
+              {/* Pre-volume + Adiabatic volume */}
               <div className="grid grid-cols-2 gap-4">
-
-                {/* Adiabatic pre-volume (coil inlet) */}
                 <div className="card">
                   <label className="flex items-center gap-3 cursor-pointer">
                     <input type="checkbox" checked={hasPrevol} onChange={e => setHasPrevol(e.target.checked)}
@@ -1242,8 +1033,6 @@ function DesignCaseWizard() {
                     </div>
                   )}
                 </div>
-
-                {/* Adiabatic volume (coil outlet / TLE) */}
                 <div className="card">
                   <label className="flex items-center gap-3 cursor-pointer">
                     <input type="checkbox" checked={hasAdvol} onChange={e => setHasAdvol(e.target.checked)}
@@ -1265,7 +1054,6 @@ function DesignCaseWizard() {
                     </div>
                   )}
                 </div>
-
               </div>
 
               {/* Piping properties */}
@@ -1301,12 +1089,387 @@ function DesignCaseWizard() {
                   </div>
                 </div>
               </div>
-                </>
-              )}
+
+              <Nav step={step} total={STEPS.length} onBack={back} onNext={next} disabled={!canProceed()} />
             </>
+
+          ) : geomSelection === 'new' ? (
+
+            /* ── New coil geometry (junction-based, ncoil=1) ─────────── */
+            <>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">New Coil Geometry</h2>
+                <p className="text-sm text-gray-400 mt-1">Define junction-by-junction geometry. Enter each junction's dimensions, bend angles, and tube properties.</p>
+              </div>
+
+              {/* Geometry label */}
+              <div className="card">
+                <label className="block text-xs text-gray-500 mb-1">Geometry label</label>
+                <input value={coilName}
+                  onChange={e => setCoilName(e.target.value)}
+                  placeholder={`NewCoilGeo_${projName || 'geo'}`}
+                  className={inp} />
+              </div>
+
+              {/* Import from file shortcut */}
+              <div className="flex items-center gap-3 rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-3">
+                <p className="text-xs text-gray-500 flex-1">
+                  Have an existing <code className="font-mono bg-white px-1 rounded border border-gray-200">reactor.txt</code>? Upload it to pre-fill the table.
+                </p>
+                <label className="cursor-pointer shrink-0">
+                  <span className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+                    Import from file
+                  </span>
+                  <input type="file" accept=".txt" className="hidden"
+                    onChange={e => { const f = e.target.files?.[0]; if (f) handleReactorTxtUpload(f) }} />
+                </label>
+                {reactorTxtName && <span className="text-xs text-emerald-600 font-medium shrink-0">{reactorTxtName}</span>}
+              </div>
+
+              {/* Junction table */}
+              <div className="card p-0 overflow-hidden">
+                <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Junctions (max 200)</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Angle bend: 0 = straight, π ≈ 3.1416 = U-bend. OD = outer diameter (mm).</p>
+                  </div>
+                  <button onClick={addJunc}
+                    className="text-xs font-medium text-gray-700 border border-gray-200 bg-white rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors shrink-0">
+                    + Add junction
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="text-xs" style={{ minWidth: '1100px' }}>
+                    <thead className="bg-gray-50/80">
+                      <tr>
+                        {[
+                          '#', 'Axial position (m)', 'OD (mm)', 'Angle bend (rad)', 'Radius bend (m)',
+                          'Mass flow factor', 'Wall thickness (mm)', 'Tube Material', 'Tube Type',
+                          'Fin distance (m)', 'Pitch (m)', 'Perim. ratio', 'Adiabatic', '',
+                        ].map(h => (
+                          <th key={h} className="text-left px-2 py-2 text-gray-400 font-semibold uppercase tracking-wide text-[10px] whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {juncRows.map((j, idx) => (
+                        <tr key={j._key} className={`border-t border-gray-50 ${j.adiabatic ? 'bg-amber-50/60' : 'hover:bg-gray-50/40'}`}>
+                          <td className="px-2 py-1 font-mono text-gray-400 text-[11px]">{idx + 1}</td>
+                          {(['z', 'od_mm', 'angle', 'radius', 'mass_flow', 'wall_mm'] as const).map(f => (
+                            <td key={f} className="px-1 py-1">
+                              <input type="number" step="any" value={j[f]}
+                                onChange={e => updateJunc(j._key, f, e.target.value)}
+                                className="w-20 border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white" />
+                            </td>
+                          ))}
+                          <td className="px-1 py-1">
+                            <select value={j.tube_material_code}
+                              onChange={e => updateJunc(j._key, 'tube_material_code', Number(e.target.value))}
+                              className="border border-gray-200 rounded px-1.5 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500" style={{ minWidth: 160 }}>
+                              {JUNCTION_TUBE_MATERIALS.map(m => (
+                                <option key={m.code} value={m.code}>{m.label}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-1 py-1">
+                            <select value={j.tube_type_code}
+                              onChange={e => updateJunc(j._key, 'tube_type_code', Number(e.target.value))}
+                              className="border border-gray-200 rounded px-1.5 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500" style={{ minWidth: 120 }}>
+                              {JUNCTION_TUBE_TYPES.map(t => (
+                                <option key={t.code} value={t.code}>{t.label}</option>
+                              ))}
+                            </select>
+                          </td>
+                          {(['fin_dist', 'pitch', 'perim_ratio'] as const).map(f => (
+                            <td key={f} className="px-1 py-1">
+                              <input type="number" step="any" value={j[f]}
+                                onChange={e => updateJunc(j._key, f, e.target.value)}
+                                className="w-16 border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white" />
+                            </td>
+                          ))}
+                          <td className="px-2 py-1 text-center">
+                            <input type="checkbox" checked={j.adiabatic}
+                              onChange={e => updateJunc(j._key, 'adiabatic', e.target.checked)}
+                              className="w-3.5 h-3.5 accent-amber-600" />
+                          </td>
+                          <td className="px-2 py-1">
+                            <button onClick={() => removeJunc(j._key)}
+                              className="text-gray-300 hover:text-red-500 text-[11px]">✕</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="px-4 py-2 border-t border-gray-100 bg-gray-50/50 text-[11px] text-gray-400">
+                  {juncRows.length} / 200 junctions
+                </div>
+              </div>
+
+              {/* Global settings */}
+              <div className="card space-y-4">
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Global Settings</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Gas Conductivity Correlation</label>
+                    <select value={genericGas} onChange={e => setGenericGas(e.target.value)} className={inp}>
+                      {GAS_CONDUCTIVITY_CORRS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Entering Angle (rad)</label>
+                    <input type="number" step="any" value={enterAngle}
+                      onChange={e => setEnterAngle(e.target.value)} className={inp} />
+                    <p className="text-[10px] text-gray-400 mt-0.5">π ≈ 3.14159 for axial entry</p>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs text-gray-500 mb-1">Correction flags (4 integers, space-separated)</label>
+                    <input value={corrFlags} onChange={e => setCorrFlags(e.target.value)}
+                      placeholder="0 1 0 0" className={inp} />
+                    <p className="text-[10px] text-gray-400 mt-0.5">e.g. <code className="font-mono">0 1 1 1</code> for UTDFUR/rifled fin coils</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Adiabatic volume */}
+              <div className="card">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" checked={juncHasAdvol} onChange={e => setJuncHasAdvol(e.target.checked)}
+                    className="w-4 h-4 rounded accent-gray-900" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-700">Adiabatic volume</p>
+                    <p className="text-xs text-gray-400">Transfer line volume after coil outlet before TLE quench</p>
+                  </div>
+                </label>
+                {juncHasAdvol && (
+                  <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-gray-100">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Volume (×10⁻³ m³)</label>
+                      <input type="number" step="any" value={juncAdVol}
+                        onChange={e => setJuncAdVol(e.target.value)} className={inp} />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Diameter (m)</label>
+                      <input type="number" step="any" value={juncAdDia}
+                        onChange={e => setJuncAdDia(e.target.value)} className={inp} />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Wall thickness (m)</label>
+                      <input type="number" step="any" value={juncAdWall}
+                        onChange={e => setJuncAdWall(e.target.value)} className={inp} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <Nav step={step} total={STEPS.length} onBack={back} onNext={next} disabled={!canProceed()} />
+            </>
+
+          ) : geomSelection === 'import' ? (
+
+            /* ── Import coil geometry ─────────────────────────────────── */
+            <>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Import Coil Geometry</h2>
+                <p className="text-sm text-gray-400 mt-1">Upload a reactor.txt file. The raw file content will be stored and passed directly to CoilSim.</p>
+              </div>
+
+              {/* Geometry label */}
+              <div className="card">
+                <label className="block text-xs text-gray-500 mb-1">Geometry label</label>
+                <input value={coilName}
+                  onChange={e => setCoilName(e.target.value)}
+                  placeholder={`ImportedCoil_${projName || 'geo'}`}
+                  className={inp} />
+              </div>
+
+              {/* Upload area */}
+              <div className="card space-y-4">
+                <label className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-amber-200 bg-amber-50/40 px-6 py-10 cursor-pointer hover:border-amber-400 transition-colors">
+                  <svg className="w-8 h-8 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  </svg>
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-gray-700">Drop reactor.txt here or click to browse</p>
+                    <p className="text-xs text-gray-400 mt-1">Accepts .txt files only</p>
+                  </div>
+                  <input type="file" accept=".txt" className="hidden"
+                    onChange={e => { const f = e.target.files?.[0]; if (f) { f.text().then(text => { setReactorTxtContent(text); setReactorTxtName(f.name) }) } }} />
+                </label>
+                {reactorTxtContent && (
+                  <div className="flex items-center justify-between rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span className="text-xs text-emerald-700 font-medium">{reactorTxtName}</span>
+                      <span className="text-xs text-emerald-500">
+                        ({reactorTxtContent.split('\n').length} lines)
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => { setReactorTxtContent(null); setReactorTxtName('') }}
+                      className="text-emerald-400 hover:text-emerald-600 text-base leading-none"
+                      title="Remove">×</button>
+                  </div>
+                )}
+                <p className="text-[11px] text-gray-400">This file will be written verbatim to reactor.txt by the worker.</p>
+              </div>
+
+              <Nav step={step} total={STEPS.length} onBack={back} onNext={next} disabled={!canProceed()} />
+            </>
+
+          ) : geomSelection === 'generic' ? (
+
+            /* ── Generic coil (per-pass, parallel tubes) ─────────────── */
+            <>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Generic Coil</h2>
+                <p className="text-sm text-gray-400 mt-1">Per-pass geometry with parallel tubes. Define each pass and optional centreline spacing.</p>
+              </div>
+
+              {/* Geometry label */}
+              <div className="card">
+                <label className="block text-xs text-gray-500 mb-1">Geometry label</label>
+                <input value={coilName}
+                  onChange={e => setCoilName(e.target.value)}
+                  placeholder={`GenericCoil_${projName || 'geo'}`}
+                  className={inp} />
+              </div>
+
+              {/* Coil configuration */}
+              <div className="card space-y-3">
+                <div className="flex items-center gap-4">
+                  <div className="flex-1">
+                    <label className="block text-xs text-gray-500 mb-1">Coil configuration</label>
+                    <select value={gcConfig} onChange={e => setGcConfig(e.target.value)} className={inp}>
+                      {GENERIC_COIL_CONFIGS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs text-gray-500 mb-1">Number of joining coil assemblies</label>
+                    <input type="number" min={1} value={gcJoining}
+                      onChange={e => setGcJoining(e.target.value)} className={inp} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Pass table */}
+              <div className="card p-0 overflow-hidden">
+                <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Passes</p>
+                    <p className="text-xs text-gray-400 mt-0.5">One row per pass. Diameter is tube internal diameter.</p>
+                  </div>
+                  <button onClick={addGcPass}
+                    className="text-xs font-medium text-gray-700 border border-gray-200 bg-white rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors">
+                    + Add pass
+                  </button>
+                </div>
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50/80">
+                    <tr>
+                      {['Pass ID', 'Straight heated tube length (m)', 'Tube internal diameter (m)', 'Tube wall thickness (m)', 'No. parallel tubes', ''].map(h => (
+                        <th key={h} className="text-left px-3 py-2 text-gray-400 font-semibold uppercase tracking-wide text-[10px] whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {gcPassRows.map((p, idx) => (
+                      <tr key={p._key} className="border-t border-gray-50 hover:bg-gray-50/50">
+                        <td className="px-3 py-1.5 font-mono text-gray-400 text-[11px]">{idx + 1}</td>
+                        {(['tube_length', 'int_dia', 'wall_mm', 'n_parallel'] as const).map(f => (
+                          <td key={f} className="px-2 py-1">
+                            <input type="number" step="any" value={p[f]}
+                              onChange={e => updateGcPass(p._key, f, e.target.value)}
+                              className="w-28 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900 bg-white" />
+                          </td>
+                        ))}
+                        <td className="px-2 py-1">
+                          <button onClick={() => removeGcPass(p._key)} className="text-gray-300 hover:text-red-500 text-[11px]">✕</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Connections */}
+              <div className="card p-0 overflow-hidden">
+                <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Centreline Spacing Between Passes</p>
+                  <button onClick={addGcConn}
+                    className="text-xs font-medium text-gray-700 border border-gray-200 bg-white rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors">
+                    + Add
+                  </button>
+                </div>
+                {gcConnRows.length === 0 ? (
+                  <p className="px-4 py-3 text-xs text-gray-400">No connections defined — optional.</p>
+                ) : (
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50/80">
+                      <tr>
+                        {['From pass', 'To pass', 'Centreline spacing (m)', ''].map(h => (
+                          <th key={h} className="text-left px-3 py-2 text-gray-400 font-semibold uppercase tracking-wide text-[10px]">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {gcConnRows.map(c => (
+                        <tr key={c._key} className="border-t border-gray-50">
+                          {(['from_pass', 'to_pass', 'cl_spacing'] as const).map(f => (
+                            <td key={f} className="px-2 py-1">
+                              <input type="number" step="any" value={c[f]}
+                                onChange={e => updateGcConn(c._key, f, e.target.value)}
+                                className="w-24 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900 bg-white" />
+                            </td>
+                          ))}
+                          <td className="px-2 py-1">
+                            <button onClick={() => removeGcConn(c._key)} className="text-gray-300 hover:text-red-500 text-[11px]">✕</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* Adiabatic volume */}
+              <div className="card space-y-3">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" checked={gcHasAdvol} onChange={e => setGcHasAdvol(e.target.checked)}
+                    className="w-4 h-4 rounded accent-gray-900" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-700">Adiabatic volume</p>
+                    <p className="text-xs text-gray-400">Transfer line volume after coil outlet</p>
+                  </div>
+                </label>
+                {gcHasAdvol && (
+                  <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gray-100">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Internal volume (×10⁻³ m³)</label>
+                      <input type="number" step="any" value={gcAdVolume}
+                        onChange={e => setGcAdVolume(e.target.value)} className={inp} />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Internal equivalent diameter (m)</label>
+                      <input type="number" step="any" value={gcAdDia}
+                        onChange={e => setGcAdDia(e.target.value)} className={inp} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <Nav step={step} total={STEPS.length} onBack={back} onNext={next} disabled={!canProceed()} />
+            </>
+
+          ) : (
+            /* fallback — shouldn't reach here */
+            <div className="card">
+              <p className="text-sm text-gray-500">No geometry type selected. Go back to Step 1.</p>
+            </div>
           )}
 
-          <Nav step={step} total={STEPS.length} onBack={back} onNext={next} disabled={!canProceed()} />
         </div>
       )}
 
@@ -1784,10 +1947,23 @@ function DesignCaseWizard() {
               <p className="text-sm font-medium text-gray-900">
                 {useMode === 'saved'
                   ? savedCoils?.find(c => c.id === Number(savedCoilId))?.name ?? '—'
-                  : (coilName || `${selectedCoilType.name}_${projName}`)}
+                  : (coilName || (
+                      geomSelection === 'new' ? `NewCoilGeo_${projName}` :
+                      geomSelection === 'import' ? `ImportedCoil_${projName}` :
+                      geomSelection === 'generic' ? `GenericCoil_${projName}` :
+                      `${selectedCoilType.name}_${projName}`
+                    ))}
               </p>
               <p className="text-xs text-gray-500">
-                {selectedCoilType.name} · ncoil={selectedCoilType.ncoil} · {passes} passes
+                {geomSelection === 'standard'
+                  ? `${selectedCoilType.name} · ncoil=${selectedCoilType.ncoil} · ${passes} passes`
+                  : geomSelection === 'new'
+                  ? `New coil geometry · ${juncRows.length} junctions`
+                  : geomSelection === 'import'
+                  ? `Imported geometry · ${reactorTxtName || '—'}`
+                  : geomSelection === 'generic'
+                  ? `Generic coil · ${gcPassRows.length} passes`
+                  : '—'}
               </p>
             </div>
 
