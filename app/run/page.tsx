@@ -9,18 +9,16 @@ const fetcher = (url: string) => fetch(url).then(r => r.json())
 // ── CoilSim constants ─────────────────────────────────────────────────────────
 
 const COIL_TYPES = [
-  { ncoil: 2,  name: 'W-coil',          passes: 4,  desc: 'Most common; 4-pass split coil',     icon: 'W' },
-  { ncoil: 3,  name: 'U-coil',          passes: 2,  desc: 'Short residence time, 2-pass',        icon: 'U' },
-  { ncoil: 5,  name: 'SRT-I',           passes: 8,  desc: 'Lummus SRT-I, 8-pass',                icon: 'I' },
-  { ncoil: 6,  name: 'SRT-II / III',    passes: 8,  desc: 'Lummus SRT-II/III variant',           icon: 'II' },
-  { ncoil: 7,  name: 'SRT-IV',          passes: 8,  desc: 'Lummus SRT-IV',                       icon: 'IV' },
-  { ncoil: 12, name: 'SRT-VI',          passes: 8,  desc: 'Lummus SRT-VI high-severity',         icon: 'VI' },
-  { ncoil: 4,  name: 'Millisecond',     passes: 2,  desc: 'Ultra-short residence time',          icon: 'ms' },
-  { ncoil: 8,  name: 'Technip GK-I',   passes: 4,  desc: 'Technip GK series, 4-pass',           icon: 'GK' },
-  { ncoil: 9,  name: 'Technip GK-VI',  passes: 4,  desc: 'Technip GK-VI high capacity',         icon: 'GK6'},
-  { ncoil: 10, name: 'Linde Pyrocrack',passes: 4,  desc: 'Linde Pyrocrack 1-1/2-4',             icon: 'LC' },
-  { ncoil: 13, name: 'SL-2',           passes: 4,  desc: 'Short/Long 2-cell coil',              icon: 'SL' },
-  { ncoil: 14, name: 'M-coil',         passes: 4,  desc: 'M-shaped multi-pass coil',            icon: 'M'  },
+  { ncoil: 4,  name: 'Millisecond',  passes: 2,  desc: 'Ultra-short residence time, 2-pass',    icon: 'MS'  },
+  { ncoil: 3,  name: 'U-coil',       passes: 2,  desc: 'Short residence time, 2-pass',          icon: 'U'   },
+  { ncoil: 2,  name: 'W-coil',       passes: 4,  desc: 'Most common; 4-pass split coil',        icon: 'W'   },
+  { ncoil: 5,  name: 'SRT I',        passes: 8,  desc: 'Lummus SRT-I, 8-pass',                  icon: 'I'   },
+  { ncoil: 6,  name: 'SRT II',       passes: 8,  desc: 'Lummus SRT-II',                         icon: 'II'  },
+  { ncoil: 7,  name: 'SRT III',      passes: 8,  desc: 'Lummus SRT-III',                        icon: 'III' },
+  { ncoil: 8,  name: 'SRT IV',       passes: 4,  desc: 'Lummus SRT-IV',                         icon: 'IV'  },
+  { ncoil: 11, name: 'SRT V',        passes: 4,  desc: 'Lummus SRT-V',                          icon: 'V'   },
+  { ncoil: 12, name: 'SRT VI',       passes: 8,  desc: 'Lummus SRT-VI high-severity',           icon: 'VI'  },
+  { ncoil: 9,  name: 'Technip GK1',  passes: 4,  desc: 'Technip GK series, 4-pass',             icon: 'GK'  },
 ]
 
 // Severity type values MUST match CoilSim exp.txt shooting_flag integers exactly.
@@ -324,8 +322,11 @@ function DesignCaseWizard() {
 
   function handleCoilTypeSelect(ct: typeof COIL_TYPES[number]) {
     setSelectedCoilType(ct)
+    setGenericMode(false)
+    setGcMode(false)
     setPasses(ct.passes)
     setLegs(Array.from({ length: ct.passes }, (_, i) => defaultLeg(i)))
+    setTimeout(() => setStep(s => s + 1), 80)   // brief flash so selection is visible, then advance
   }
 
   function handlePassesChange(n: number) {
@@ -818,7 +819,7 @@ function DesignCaseWizard() {
 
             {/* New coil geometry — junction-based (CoilSim "New coil geometry") */}
             <button
-              onClick={() => { setGenericMode(true); setGcMode(false) }}
+              onClick={() => { setGenericMode(true); setGcMode(false); setTimeout(() => setStep(s => s + 1), 80) }}
               className={`rounded-xl border p-4 text-left transition-all hover:shadow-sm ${
                 genericMode && !gcMode
                   ? 'border-indigo-600 bg-indigo-600 text-white shadow'
@@ -835,7 +836,7 @@ function DesignCaseWizard() {
 
             {/* Generic coil — per-pass with parallel tubes (CoilSim "Generic coil") */}
             <button
-              onClick={() => { setGenericMode(true); setGcMode(true) }}
+              onClick={() => { setGenericMode(true); setGcMode(true); setTimeout(() => setStep(s => s + 1), 80) }}
               className={`rounded-xl border p-4 text-left transition-all hover:shadow-sm ${
                 gcMode
                   ? 'border-violet-600 bg-violet-600 text-white shadow'
