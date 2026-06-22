@@ -255,9 +255,9 @@ function DesignCaseWizard() {
 
   function defaultJuncRows(): JuncRow[] {
     return [
-      { _key: 0, z: '0.000',  od_mm: '39.6', wall_mm: '8.5', angle: '0.0000', radius: '0.0000', mass_flow: '1.0', tube_material_code: 14, tube_type_code: 1, fin_dist: '0.0', pitch: '0.0', perim_ratio: '1.0', adiabatic: false },
-      { _key: 1, z: '10.000', od_mm: '39.6', wall_mm: '8.5', angle: '3.1416', radius: '0.5000', mass_flow: '1.0', tube_material_code: 14, tube_type_code: 1, fin_dist: '0.0', pitch: '0.0', perim_ratio: '1.0', adiabatic: false },
-      { _key: 2, z: '10.500', od_mm: '39.6', wall_mm: '8.5', angle: '0.0000', radius: '0.0000', mass_flow: '1.0', tube_material_code: 14, tube_type_code: 1, fin_dist: '0.0', pitch: '0.0', perim_ratio: '1.0', adiabatic: false },
+      { _key: 0, z: '0.000',  od_mm: '39.6', wall_mm: '8.5', angle: '0.0000', radius: '0.0000', mass_flow: '1.0', tube_material_code: 14, tube_type_code: 1, fin_dist: '0.0', pitch: '0.0', perim_ratio: '0.0', adiabatic: false },
+      { _key: 1, z: '10.000', od_mm: '39.6', wall_mm: '8.5', angle: '3.1416', radius: '0.5000', mass_flow: '1.0', tube_material_code: 14, tube_type_code: 1, fin_dist: '0.0', pitch: '0.0', perim_ratio: '0.0', adiabatic: false },
+      { _key: 2, z: '10.500', od_mm: '39.6', wall_mm: '8.5', angle: '0.0000', radius: '0.0000', mass_flow: '1.0', tube_material_code: 14, tube_type_code: 1, fin_dist: '0.0', pitch: '0.0', perim_ratio: '0.0', adiabatic: false },
     ]
   }
   const [juncRows,    setJuncRows]    = useState<JuncRow[]>(defaultJuncRows)
@@ -284,7 +284,7 @@ function DesignCaseWizard() {
       tube_type_code: last?.tube_type_code ?? 1,
       fin_dist: last?.fin_dist ?? '0.0',
       pitch: last?.pitch ?? '0.0',
-      perim_ratio: last?.perim_ratio ?? '1.0',
+      perim_ratio: last?.perim_ratio ?? '0.0',
       adiabatic: false,
     }])
     setJuncKey(k => k + 1)
@@ -627,7 +627,7 @@ function DesignCaseWizard() {
                   mass_flow:         parseFloat(j.mass_flow)    || 1.0,
                   fin_dist:          parseFloat(j.fin_dist)     || 0.0,
                   pitch:             parseFloat(j.pitch)        || 0.0,
-                  perim_ratio:       parseFloat(j.perim_ratio)  || 1.0,
+                  perim_ratio:       parseFloat(j.perim_ratio)  || 0.0,
                   adiabatic:         j.adiabatic,
                 })),
                 correction_flags: corrFlags.trim().split(/\s+/).map(Number),
