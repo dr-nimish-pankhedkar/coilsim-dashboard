@@ -364,10 +364,20 @@ function DesignCaseWizard() {
     const nextFloat = () => { const v = parseFloat(tokens[ti++] ?? '0');   return isNaN(v) ? 0 : v }
     const readBlock = (n: number) => Array.from({ length: n }, nextFloat)
 
-    const ncoil = nextInt()
-    if (ncoil !== 1) return null
-    const n = nextInt()
-    if (n < 1 || n > 500) return null
+    const t0 = nextInt()
+    if (t0 !== 1) return null   // must be ncoil=1 or the CoilSim prefix flag
+    const t1 = nextInt()
+    // Real CoilSim ncoil=1 files have an extra leading "1" before ncoil:
+    //   Format A (CoilSim): 1 \n 1 \n N \n ...  (prefix, ncoil, junctions)
+    //   Format B (worker):  1 \n N \n ...         (ncoil, junctions)
+    // Detect by checking if t1 is also 1 (both tokens are 1 → Format A)
+    let n: number
+    if (t1 === 1) {
+      n = nextInt()   // Format A: skip prefix + ncoil, read actual N
+    } else {
+      n = t1          // Format B: t0=ncoil, t1=N
+    }
+    if (n < 2 || n > 500) return null
 
     // Blocks 1–7
     const wallArr  = readBlock(n)   // wall thickness (m) → ×1000 = mm
