@@ -357,64 +357,70 @@ function DesignCaseWizard() {
   }
 
   function parseReactorTxt(content: string): ParsedReactor | null {
-    const lines = content.split('\n').map(l => l.trim()).filter(l => l !== '')
-    if (lines.length < 2) return null
-    if (parseInt(lines[0]) !== 1) return null
-    const n = parseInt(lines[1])
-    if (isNaN(n) || n < 1 || n > 500) return null
-    const lpa = Math.ceil(n / 9)
-    function readArr(start: number): number[] {
-      const vals: number[] = []
-      for (let i = 0; i < lpa; i++) {
-        ;(lines[start + i] ?? '').split(/\s+/).forEach(v => {
-          const x = parseFloat(v); if (!isNaN(x)) vals.push(x)
-        })
-      }
-      return vals.slice(0, n)
-    }
-    let cur = 2
-    const wallArr  = readArr(cur); cur += lpa
-    const circArr  = readArr(cur); cur += lpa
-    cur += lpa  // skip pitch array (not displayed per-junction)
-    const axialArr = readArr(cur); cur += lpa
-    const angleArr = readArr(cur); cur += lpa
-    const radArr   = readArr(cur); cur += lpa
-    const flagArr  = readArr(cur); cur += lpa
-    // global: mat code, correction flags
-    const matCode  = (lines[cur] ?? '').trim(); cur += 1
-    const corrLine = (lines[cur] ?? '').trim(); cur += 1
-    // per-junction arrays: tube type, mass flow, fin_dist, perim_ratio
-    const typeArr    = readArr(cur); cur += lpa
-    const mflowArr   = readArr(cur); cur += lpa
-    const findistArr = readArr(cur); cur += lpa
-    const perimArr   = readArr(cur); cur += lpa
-    const enterAngle = (lines[cur] ?? '').trim(); cur += 1
-    const gasCorr    = (lines[cur] ?? '').trim()
+    // Tokenize the entire file — 9-per-line grouping is cosmetic only
+    const tokens = content.trim().split(/\s+/).filter(Boolean)
+    let ti = 0
+    const nextInt   = () => { const v = parseInt(tokens[ti++] ?? '0', 10); return isNaN(v) ? 0 : v }
+    const nextFloat = () => { const v = parseFloat(tokens[ti++] ?? '0');   return isNaN(v) ? 0 : v }
+    const readBlock = (n: number) => Array.from({ length: n }, nextFloat)
+
+    const ncoil = nextInt()
+    if (ncoil !== 1) return null
+    const n = nextInt()
+    if (n < 1 || n > 500) return null
+
+    // Blocks 1–7
+    const wallArr  = readBlock(n)   // wall thickness (m) → ×1000 = mm
+    const circArr  = readBlock(n)   // circumference = π×OD (m) → /π×1000 = od_mm
+    const pitchArr = readBlock(n)   // pitch (m) direct
+    const axialArr = readBlock(n)   // axial position (m) direct
+    const angleArr = readBlock(n)   // angle bend (rad) direct
+    const radArr   = readBlock(n)   // radius bend (m) direct
+    const flagArr  = readBlock(n)   // junction flags (0 or 4)
+
+    // Single globals
+    const matCode  = nextInt()
+    const cf0 = nextInt(), cf1 = nextInt(), cf2 = nextInt(), cf3 = nextInt()
+
+    // Blocks 8–11
+    const typeArr    = readBlock(n)  // tube type integer
+    const mflowArr   = readBlock(n)  // mass flow factor
+    const findistArr = readBlock(n)  // fin distance (m) direct
+    const perimArr   = readBlock(n)  // perimeter ratio direct
+
+    // Trailing singles
+    const enteringAngle = nextFloat()
+    const gasCorrCode   = nextInt()
 
     let k = juncKey
     const juncRows: JuncRow[] = Array.from({ length: n }, (_, i) => ({
       _key:               k++,
-      z:                  (axialArr[i] ?? 0).toFixed(4),
-      od_mm:              circArr[i] != null ? ((circArr[i] / Math.PI) * 1000).toFixed(2) : '0',
-      wall_mm:            ((wallArr[i] ?? 0) * 1000).toFixed(2),
-      angle:              (angleArr[i] ?? 0).toFixed(4),
-      radius:             (radArr[i] ?? 0).toFixed(4),
-      mass_flow:          (mflowArr[i] ?? 1.0).toFixed(3),
-      tube_material_code: 0,   // not stored per-junction in file; user sets globally
-      tube_type_code:     typeArr[i] != null ? Math.round(typeArr[i]) : 1,
-      fin_dist:           (findistArr[i] ?? 0).toFixed(4),
-      pitch:              '0.0',
-      perim_ratio:        (perimArr[i] ?? 1.0).toFixed(4),
-      adiabatic:          (flagArr[i] ?? 0) >= 4,
+      z:                  axialArr[i].toFixed(4),
+      od_mm:              ((circArr[i] / Math.PI) * 1000).toFixed(2),
+      wall_mm:            (wallArr[i] * 1000).toFixed(2),
+      angle:              angleArr[i].toFixed(4),
+      radius:             radArr[i].toFixed(4),
+      mass_flow:          mflowArr[i].toFixed(3),
+      tube_material_code: matCode,
+      tube_type_code:     Math.round(typeArr[i]) || 1,
+      fin_dist:           findistArr[i].toFixed(4),
+      pitch:              pitchArr[i].toFixed(4),
+      perim_ratio:        perimArr[i].toFixed(4),
+      adiabatic:          Math.round(flagArr[i]) === 4,
     }))
 
-    const gasIdx = parseInt(gasCorr) - 1
+    // gas_corr_code: 1=Modified Eucken, 0=Eucken, 2=Wassiljewa
+    const GAS_CORR_MAP: Record<number, string> = {
+      1: GAS_CONDUCTIVITY_CORRS[0],  // Modified Eucken
+      0: GAS_CONDUCTIVITY_CORRS[1],  // Eucken
+      2: GAS_CONDUCTIVITY_CORRS[2],  // Wassiljewa
+    }
     return {
       juncRows,
-      matCode:    matCode || '14',
-      corrFlags:  corrLine || '0 1 0 0',
-      enterAngle: enterAngle || '3.14159',
-      gasCorr:    GAS_CONDUCTIVITY_CORRS[gasIdx] ?? GAS_CONDUCTIVITY_CORRS[0],
+      matCode:    String(matCode),
+      corrFlags:  `${cf0} ${cf1} ${cf2} ${cf3}`,
+      enterAngle: String(enteringAngle),
+      gasCorr:    GAS_CORR_MAP[gasCorrCode] ?? GAS_CONDUCTIVITY_CORRS[0],
     }
   }
 
