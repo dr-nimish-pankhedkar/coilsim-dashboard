@@ -9,11 +9,23 @@ import type { OperatingCoilRow, DesignCase, ChannelConfig } from '@/lib/types'
 
 const EXTRA_DCS_KEYS = ['steam_dilution', 'cop', 'cit', 'cip'] as const
 type ExtraDcsKey = typeof EXTRA_DCS_KEYS[number]
-const EXTRA_DCS_FIELD: Record<ExtraDcsKey, { label: string; placeholder: string; step: string }> = {
-  steam_dilution: { label: 'Steam Dilution (kg/kg HC)', placeholder: 'e.g. 0.35', step: '0.001' },
-  cop:            { label: 'Coil Outlet Pressure (atm)', placeholder: 'e.g. 2.053', step: '0.001' },
-  cit:            { label: 'Coil Inlet Temperature (°C)', placeholder: 'e.g. 668', step: '0.1'  },
-  cip:            { label: 'Coil Inlet Pressure (atm)', placeholder: 'e.g. 2.59', step: '0.001' },
+const EXTRA_DCS_FIELD: Record<ExtraDcsKey, { label: string; unit: string; dbKey: string; decimals: number }> = {
+  steam_dilution: { label: 'Steam Dilution', unit: 'kg/kg HC', dbKey: 'dilution_ratio', decimals: 4 },
+  cop:            { label: 'Coil Outlet Pressure', unit: 'atm',    dbKey: 'cop_input',      decimals: 4 },
+  cit:            { label: 'Coil Inlet Temperature', unit: '°C',   dbKey: 'cit_input',      decimals: 2 },
+  cip:            { label: 'Coil Inlet Pressure', unit: 'atm',     dbKey: 'cip_input',      decimals: 4 },
+}
+
+type DcsRow = {
+  id: number
+  cot_input: number
+  flow_input: number
+  dilution_ratio: number | null
+  cit_input: number | null
+  cip_input: number | null
+  cop_input: number | null
+  project_name: string | null
+  created_at: string
 }
 
 const ACTIVE_MODEL_KEY = 'coilsim_active_design_case_id'
@@ -23,29 +35,50 @@ const fetcher = (url: string) => fetch(url).then(r => r.json())
 // ── Shared styles ─────────────────────────────────────────────────────────────
 const inp = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white'
 
+function dcsAge(ts: string): string {
+  const secs = Math.floor((Date.now() - new Date(ts).getTime()) / 1000)
+  if (secs < 60)  return `${secs}s ago`
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`
+  return `${Math.floor(secs / 3600)}h ago`
+}
+
+// ── DCS live value display ────────────────────────────────────────────────────
+function DcsValueBox({ label, unit, value }: { label: string; unit: string; value: number | null }) {
+  return (
+    <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs font-medium text-blue-700">{label}</span>
+        <span className="text-[9px] font-semibold uppercase tracking-widest text-blue-500">{unit}</span>
+      </div>
+      <p className="text-lg font-bold tabular-nums text-blue-900">
+        {value != null ? value : '—'}
+      </p>
+    </div>
+  )
+}
 
 // ── Hourly Run panel ──────────────────────────────────────────────────────────
 function HourlyRunPanel() {
-  const [cot,            setCot]          = useState('')
-  const [flow,           setFlow]         = useState('')
-  const [extras,         setExtras]       = useState<Record<string, string>>({})
-  const [selectedDcId,   setSelectedDcId] = useState<number | null>(null)
-  const [state,          setState]        = useState<'idle'|'loading'|'ok'|'err'>('idle')
-  const [msg,            setMsg]          = useState('')
+  const [selectedDcId, setSelectedDcId] = useState<number | null>(null)
+  const [state,        setState]        = useState<'idle'|'loading'|'ok'|'err'>('idle')
+  const [msg,          setMsg]          = useState('')
 
   const { data: rawDcs }      = useSWR<DesignCase[]>('/api/design-cases', fetcher, { refreshInterval: 60_000 })
   const { data: rawChannels } = useSWR<ChannelConfig[]>('/api/admin/channel-config', fetcher, { refreshInterval: 120_000 })
+  // Poll DCS live feed every 30 s
+  const { data: dcsLive, error: dcsErr } = useSWR<DcsRow>('/api/dcs/latest', fetcher, { refreshInterval: 30_000 })
+
   const channels: ChannelConfig[] = Array.isArray(rawChannels) ? rawChannels : []
   const designCases: DesignCase[] = Array.isArray(rawDcs) ? rawDcs : []
   const selectedDc = designCases.find(d => d.id === selectedDcId) ?? null
 
-  // Extra params configured as DCS — user must enter each run
+  // Which extra params are configured as DCS?
   const extraDcsKeys = EXTRA_DCS_KEYS.filter(k => {
     const ch = channels.find(c => c.param_key === k)
     return ch?.source === 'dcs' && ch?.enabled
   })
 
-  // Load from DB on mount, fall back to localStorage for instant paint
+  // Load active model on mount
   useEffect(() => {
     const local = localStorage.getItem(ACTIVE_MODEL_KEY)
     if (local) setSelectedDcId(Number(local))
@@ -71,21 +104,22 @@ function HourlyRunPanel() {
     }).catch(() => {})
   }
 
-
   async function submit() {
-    if (!cot || !flow) { setMsg('COT and HC Flow are required.'); setState('err'); return }
-    for (const k of extraDcsKeys) {
-      if (!extras[k]) { setMsg(`${EXTRA_DCS_FIELD[k].label} is required (set to DCS in Configuration).`); setState('err'); return }
-    }
+    if (!dcsLive) { setMsg('No DCS data available yet.'); setState('err'); return }
     setState('loading')
     const body: Record<string, any> = {
-      type: 'hourly', cot: Number(cot), flow: Number(flow),
+      type:           'hourly',
+      cot:            dcsLive.cot_input,
+      flow:           dcsLive.flow_input,
       project_name:   selectedDc?.project_name ?? null,
       design_case_id: selectedDcId ?? null,
     }
+    // Include all DCS-configured extras from live feed
     for (const k of extraDcsKeys) {
-      const map: Record<ExtraDcsKey, string> = { steam_dilution: 'dilution', cop: 'cop', cit: 'cit', cip: 'cip' }
-      body[map[k]] = Number(extras[k])
+      const dbKey = EXTRA_DCS_FIELD[k].dbKey as keyof DcsRow
+      const apiKey: Record<ExtraDcsKey, string> = { steam_dilution: 'dilution', cop: 'cop', cit: 'cit', cip: 'cip' }
+      const val = dcsLive[dbKey]
+      if (val != null) body[apiKey[k]] = val
     }
     const res = await fetch('/api/run', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -93,18 +127,36 @@ function HourlyRunPanel() {
     })
     const json = await res.json()
     if (!res.ok) { setState('err'); setMsg(json.error ?? 'Failed'); return }
-    setState('ok'); setMsg(`Task #${json.id} queued.`); setCot(''); setFlow('')
+    setState('ok'); setMsg(`Task #${json.id} queued.`)
     setTimeout(() => { setState('idle'); setMsg('') }, 4000)
   }
 
   const lbl = 'block text-xs font-medium text-gray-600 mb-1'
+  const hasDcs = dcsLive && !dcsErr && !(dcsLive as any).error
+  const dcsStale = hasDcs
+    ? (Date.now() - new Date(dcsLive!.created_at).getTime()) > 15 * 60 * 1000  // >15 min old
+    : false
 
   return (
     <div className="card space-y-6">
       {/* Header */}
-      <div>
-        <p className="text-sm font-semibold text-gray-900">Hourly Run</p>
-        <p className="text-xs text-gray-400 mt-0.5">Submit operating conditions to run a simulation</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm font-semibold text-gray-900">Hourly Run</p>
+          <p className="text-xs text-gray-400 mt-0.5">Values pulled live from DCS feed · refreshes every 30s</p>
+        </div>
+        {/* DCS status badge */}
+        {hasDcs ? (
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold ${dcsStale ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${dcsStale ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'}`} />
+            {dcsStale ? `STALE · ${dcsAge(dcsLive!.created_at)}` : `LIVE · ${dcsAge(dcsLive!.created_at)}`}
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-400 border border-gray-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />
+            NO FEED
+          </div>
+        )}
       </div>
 
       {/* Furnace model */}
@@ -129,46 +181,41 @@ function HourlyRunPanel() {
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-
-        <div>
-          <label className={lbl}>COT Target (°C)</label>
-          <input type="number" value={cot}
-            onChange={e => { setCot(e.target.value); setState('idle') }}
-            placeholder="e.g. 837"
-            className={inp} />
-        </div>
-
-        <div>
-          <label className={lbl}>HC Feed Flow (kg/h per tube)</label>
-          <input type="number" value={flow}
-            onChange={e => { setFlow(e.target.value); setState('idle') }}
-            placeholder="e.g. 1298"
-            className={inp} />
-        </div>
-
-        {extraDcsKeys.map(k => (
-          <div key={k}>
-            <label className={lbl}>
-              {EXTRA_DCS_FIELD[k].label}
-              <span className="ml-1.5 text-[9px] font-semibold uppercase tracking-widest text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded-full">DCS</span>
-            </label>
-            <input
-              type="number"
-              step={EXTRA_DCS_FIELD[k].step}
-              value={extras[k] ?? ''}
-              onChange={e => { setExtras(prev => ({ ...prev, [k]: e.target.value })); setState('idle') }}
-              placeholder={EXTRA_DCS_FIELD[k].placeholder}
-              className={inp}
-            />
+      {/* DCS live values grid */}
+      {hasDcs ? (
+        <div className="space-y-3">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+            DCS Live Values
+            {dcsLive?.project_name && (
+              <span className="ml-2 font-normal normal-case tracking-normal text-gray-400">
+                from <span className="text-gray-600">{dcsLive.project_name}</span>
+              </span>
+            )}
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <DcsValueBox label="COT Target" unit="°C" value={dcsLive!.cot_input} />
+            <DcsValueBox label="HC Feed Flow" unit="kg/h" value={dcsLive!.flow_input} />
+            {extraDcsKeys.map(k => {
+              const f = EXTRA_DCS_FIELD[k]
+              const val = dcsLive![f.dbKey as keyof DcsRow] as number | null
+              return <DcsValueBox key={k} label={f.label} unit={f.unit} value={val} />
+            })}
           </div>
-        ))}
-
-      </div>
+        </div>
+      ) : (
+        <div className="rounded-lg bg-gray-50 border border-dashed border-gray-200 px-4 py-5 text-center space-y-1">
+          <p className="text-sm text-gray-400">No DCS data in database yet.</p>
+          <p className="text-xs text-gray-300">Start the DCS simulator script to begin feeding live values.</p>
+        </div>
+      )}
 
       <div className="flex items-center gap-4 pt-1">
-        <button onClick={submit} disabled={state === 'loading'} className="btn-primary">
-          {state === 'loading' ? 'Submitting…' : 'Queue Run →'}
+        <button
+          onClick={submit}
+          disabled={state === 'loading' || !hasDcs}
+          className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {state === 'loading' ? 'Submitting…' : 'Queue Run with Live Values →'}
         </button>
         {state === 'ok'  && <p className="text-sm text-emerald-600 font-medium">✓ {msg}</p>}
         {state === 'err' && <p className="text-sm text-red-500">{msg}</p>}
