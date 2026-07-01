@@ -43,9 +43,9 @@ export async function POST(req: NextRequest) {
 
     // We don't have plant-side yield data yet — compute simulated-only metrics.
     // When plant yield analyzer tags are available, load them here and compute error%.
-    const overallC2H4ErrorPct: number | null = null   // needs plant data
-    const h2Ch4ErrorPct: number | null = null
-    const c3PlusErrorPct: number | null = null
+    const overallC2H4ErrorPct = null as number | null   // needs plant data
+    const h2Ch4ErrorPct       = null as number | null
+    const c3PlusErrorPct      = null as number | null
 
     // Per-furnace aggregates
     const furnaceRes = await client.query(`
