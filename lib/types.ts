@@ -124,3 +124,66 @@ export interface ChannelConfig {
   exp_row: number | null
   display_order: number
 }
+
+export interface ValidationResult {
+  id: number
+  design_case_id: number
+  timestamp: string
+  furnace_id: string
+  pass_id: string
+  hc_flow_kg_hr: number | null
+  shc_ratio: number | null
+  cit_degc: number | null
+  cot_dcs_degc: number | null
+  cot_coilsim_degc: number | null
+  cop_atm: number | null
+  c2h4_yield_wt: number | null
+  c2h4_kg_hr: number | null
+  h2_ch4_yield_wt: number | null
+  h2_ch4_kg_hr: number | null
+  c3plus_yield_wt: number | null
+  c3plus_kg_hr: number | null
+  max_tmt_degc: number | null
+  coil_heat_kj_hr: number | null
+  run_status: 'pending' | 'success' | 'failed' | 'filtered'
+  filter_reason: string | null
+}
+
+export interface ValidationStatusResponse {
+  status: string
+  runs_total: number
+  runs_complete: number
+  runs_failed: number
+  pct_complete: number
+  months: Array<{
+    month: string
+    sim_c2h4_mt: number
+    error_pct: number | null
+  }>
+}
+
+export interface ValidationAcceptanceCheck {
+  name: string
+  passed: boolean
+  value: string
+  threshold: string
+}
+
+export interface ValidationBiasReport {
+  all_passed: boolean
+  checks: ValidationAcceptanceCheck[]
+  per_furnace: Array<{
+    furnace_id: string
+    sim_c2h4_avg: number
+    bias_kg_hr: number
+  }>
+  monthly: Array<{
+    month: string
+    sim_c2h4_mt: number
+    h2_ch4_error_pct: number | null
+    c3plus_error_pct: number | null
+  }>
+  run_failure_rate_pct: number
+  overall_c2h4_error_pct: number | null
+  avg_coil_heat_kj_hr: number | null
+}
