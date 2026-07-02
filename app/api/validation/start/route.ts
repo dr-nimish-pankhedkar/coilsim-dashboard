@@ -117,6 +117,50 @@ export async function POST(req: NextRequest) {
     }
 
     // Queue validation runs for each surviving data point.
+    // Read plant data config for this design case (tag mapping for resolving plant C2H4)
+    const plantCfgRes = await client.query(
+      `SELECT dc.plant_data_mode, pyt.furnace_id, pyt.pass_id, pyt.tag_name, pyt.tag_unit
+       FROM cs_py_int.design_cases dc
+       LEFT JOIN cs_py_int.plant_yield_tags pyt ON pyt.design_case_id = dc.id
+       WHERE dc.id = $1`,
+      [design_case_id]
+    )
+    const plantMode = plantCfgRes.rows[0]?.plant_data_mode ?? null
+    // Build a simple tag map: key = furnace_id (or 'header'), value = {tag_name, tag_unit}
+    const plantTagMap = new Map<string, { tag: string; unit: string }>()
+    for (const r of plantCfgRes.rows) {
+      if (!r.tag_name) continue
+      const key = plantMode === 'header' ? 'header' : (r.furnace_id ?? 'header')
+      plantTagMap.set(key, { tag: r.tag_name, unit: r.tag_unit })
+    }
+
+    // Helper: convert tag value to kg/hr based on unit and HC flow
+    function toKgHr(value: number, unit: string, hcFlow: number): number {
+      if (unit === 'wt%')      return (value / 100) * hcFlow
+      if (unit === 'fraction') return value * hcFlow
+      return value  // kg/hr already
+    }
+
+    // Helper: fetch closest plant C2H4 value from hourly_data for a given timestamp
+    async function resolvePlantC2H4(ts: string, hcFlow: number): Promise<number | null> {
+      const tagInfo = plantTagMap.get('header') ?? plantTagMap.get('furnace_1') ?? null
+      if (!tagInfo) return null
+      try {
+        const r = await client.query(`
+          SELECT value FROM cs_py_int.hourly_data
+          WHERE tag_name = $1
+            AND timestamp BETWEEN $2::timestamptz - INTERVAL '30 minutes'
+                              AND $2::timestamptz + INTERVAL '30 minutes'
+          ORDER BY ABS(EXTRACT(EPOCH FROM (timestamp - $2::timestamptz)))
+          LIMIT 1
+        `, [tagInfo.tag, ts])
+        if (!r.rows.length) return null
+        return toKgHr(parseFloat(r.rows[0].value), tagInfo.unit, hcFlow)
+      } catch {
+        return null  // hourly_data unavailable or schema mismatch
+      }
+    }
+
     // No COT bias applied at queue time — bias is computed as an output after all runs complete.
     for (const row of rows) {
       const cotDcs = parseFloat(row.cot_input)
@@ -139,15 +183,18 @@ export async function POST(req: NextRequest) {
       const cip  = parseFloat(row.cip_input) || 2.59
       const cop  = parseFloat(row.cop_input) || 2.053
 
+      // Resolve plant C2H4 for this timestamp from hourly_data (null if tag not found)
+      const plantC2H4KgHr = await resolvePlantC2H4(row.created_at, flow)
+
       // 1. Pre-insert validation_results shell row — cot_coilsim_degc = raw DCS COT (no bias yet)
       const vrRes = await client.query(`
         INSERT INTO cs_py_int.validation_results
           (design_case_id, timestamp, furnace_id, pass_id,
            hc_flow_kg_hr, shc_ratio, cit_degc, cot_dcs_degc, cot_coilsim_degc, cop_atm,
-           run_status)
-        VALUES ($1, $2, 'furnace_1', 'pass_1', $3, $4, $5, $6, $6, $7, 'pending')
+           plant_c2h4_kg_hr, run_status)
+        VALUES ($1, $2, 'furnace_1', 'pass_1', $3, $4, $5, $6, $6, $7, $8, 'pending')
         RETURNING id
-      `, [design_case_id, row.created_at, flow, dil, cit, cotDcs, cop])
+      `, [design_case_id, row.created_at, flow, dil, cit, cotDcs, cop, plantC2H4KgHr])
       const validationResultId = vrRes.rows[0].id
 
       // 2. Queue simulation task — cot_input = raw DCS COT, no offset

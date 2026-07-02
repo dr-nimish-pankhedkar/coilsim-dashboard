@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import useSWR from 'swr'
 import type { DesignCase, ValidationStatusResponse, ValidationBiasReport } from '@/lib/types'
 
@@ -257,6 +257,333 @@ function Section({ title, sub, children }: { title: string; sub?: string; childr
   )
 }
 
+// ── Plant Data Configuration ─────────────────────────────────────────────────
+interface TagRow {
+  furnace_id:   string | null
+  pass_id:      string | null
+  tag_name:     string
+  tag_unit:     'wt%' | 'kg/hr' | 'fraction'
+  status:       'idle' | 'checking' | 'found' | 'not_found'
+  sample_value: number | null
+  last_seen:    string | null
+}
+
+interface PlantCfgData {
+  plant_data_mode:    'header' | 'per_furnace' | 'per_pass' | null
+  tags:               Array<{ furnace_id: string|null; pass_id: string|null; tag_name: string; tag_unit: string }>
+  fuel_gas_flow_tag:  string | null
+  fuel_gas_lhv_kj_kg: number
+  furnaces:           string[]
+  passes:             Array<{ furnace_id: string; pass_id: string }>
+  tag_validation:     Array<{ tag_name: string; exists: boolean; sample_value: number|null; last_seen: string|null }>
+}
+
+const MODE_OPTIONS = [
+  {
+    key:      'header'      as const,
+    label:    'Combined header',
+    desc:     'Single tag for all furnaces combined',
+    computes: 'Global COT bias only',
+  },
+  {
+    key:      'per_furnace' as const,
+    label:    'Per-furnace analyzer',
+    desc:     'One tag per furnace outlet',
+    computes: 'Global COT bias + per-furnace residual',
+  },
+  {
+    key:      'per_pass'    as const,
+    label:    'Per-pass (coil-level)',
+    desc:     'Individual yield tag per coil pass',
+    computes: 'Global + per-furnace + per-pass bias',
+  },
+]
+
+function buildTagRows(
+  mode: 'header' | 'per_furnace' | 'per_pass',
+  cfg: PlantCfgData,
+  saved: PlantCfgData['tags']
+): TagRow[] {
+  const blank = (f: string|null, p: string|null): TagRow => {
+    const s = saved.find(t => t.furnace_id === f && t.pass_id === p)
+    return { furnace_id: f, pass_id: p, tag_name: s?.tag_name ?? '', tag_unit: (s?.tag_unit as TagRow['tag_unit']) ?? 'wt%',
+             status: 'idle', sample_value: null, last_seen: null }
+  }
+  if (mode === 'header') return [blank(null, null)]
+  if (mode === 'per_furnace') {
+    const furnaces = cfg.furnaces.length ? cfg.furnaces : ['furnace_1']
+    return furnaces.map(f => blank(f, null))
+  }
+  const pairs = cfg.passes.length ? cfg.passes : [{ furnace_id: 'furnace_1', pass_id: 'pass_1' }]
+  return pairs.map(p => blank(p.furnace_id, p.pass_id))
+}
+
+function TagStatus({ row }: { row: TagRow }) {
+  if (row.status === 'idle')     return <span className="text-gray-300 text-[10px]">—</span>
+  if (row.status === 'checking') return <span className="text-gray-400 text-[10px] italic">checking…</span>
+  if (row.status === 'found') {
+    const age = row.last_seen
+      ? (() => { const m = Math.floor((Date.now() - new Date(row.last_seen).getTime()) / 60000); return m < 60 ? `${m}m ago` : `${Math.floor(m/60)}h ago` })()
+      : ''
+    return (
+      <span className="text-emerald-600 text-[10px]">
+        ● {row.sample_value != null ? row.sample_value.toFixed(2) : ''}
+        {row.tag_unit ? ` ${row.tag_unit}` : ''}{age ? ` · ${age}` : ''}
+      </span>
+    )
+  }
+  return <span className="text-red-500 text-[10px]">✗ Not found in historian</span>
+}
+
+function PlantDataConfig({
+  designCaseId,
+  disabled,
+  onConfigChange,
+}: {
+  designCaseId: number
+  disabled:     boolean
+  onConfigChange: (saved: boolean, hasFound: boolean) => void
+}) {
+  const [mode,       setMode]       = useState<'header'|'per_furnace'|'per_pass'|null>(null)
+  const [tags,       setTags]       = useState<TagRow[]>([])
+  const [fuelTag,    setFuelTag]    = useState('')
+  const [fuelLHV,    setFuelLHV]    = useState(47000)
+  const [energyOpen, setEnergyOpen] = useState(false)
+  const [saving,     setSaving]     = useState(false)
+  const [saveOk,     setSaveOk]     = useState(false)
+  const [saveErr,    setSaveErr]    = useState('')
+  const loaded = useRef<number | null>(null)
+  const prevNotify = useRef({ saved: false, hasFound: false })
+
+  const { data: cfg } = useSWR<PlantCfgData>(
+    `/api/validation/plant-config/${designCaseId}`,
+    fetcher,
+    { revalidateOnFocus: false }
+  )
+
+  // Initialise from saved config once per design case
+  useEffect(() => {
+    if (!cfg || loaded.current === designCaseId) return
+    loaded.current = designCaseId
+    setMode(cfg.plant_data_mode ?? null)
+    setFuelTag(cfg.fuel_gas_flow_tag ?? '')
+    setFuelLHV(cfg.fuel_gas_lhv_kj_kg ?? 47000)
+    if (cfg.plant_data_mode) {
+      const rows = buildTagRows(cfg.plant_data_mode, cfg, cfg.tags)
+      // Restore validation status from saved tag_validation
+      setTags(rows.map(r => {
+        const v = cfg.tag_validation.find(tv => tv.tag_name === r.tag_name && r.tag_name !== '')
+        return v ? { ...r, status: v.exists ? 'found' : 'not_found', sample_value: v.sample_value, last_seen: v.last_seen } : r
+      }))
+      setSaveOk(cfg.tags.length > 0)
+    }
+  }, [cfg, designCaseId])
+
+  // Reset when design case changes
+  useEffect(() => {
+    loaded.current = null
+    setMode(null); setTags([]); setSaveOk(false); setSaveErr('')
+  }, [designCaseId])
+
+  // Notify parent — guarded by ref to avoid infinite loops
+  useEffect(() => {
+    const hasFound = tags.some(t => t.status === 'found')
+    if (prevNotify.current.saved !== saveOk || prevNotify.current.hasFound !== hasFound) {
+      prevNotify.current = { saved: saveOk, hasFound }
+      onConfigChange(saveOk, hasFound)
+    }
+  })
+
+  const handleMode = (m: 'header'|'per_furnace'|'per_pass') => {
+    setMode(m); setSaveOk(false)
+    if (cfg) setTags(buildTagRows(m, cfg, []))
+  }
+
+  const updateTag = (i: number, key: 'tag_name'|'tag_unit', val: string) => {
+    setTags(prev => prev.map((t, n) => n === i ? { ...t, [key]: val, status: 'idle' } : t))
+    setSaveOk(false)
+  }
+
+  const checkTag = async (tagName: string, i: number) => {
+    if (!tagName.trim()) return
+    setTags(prev => prev.map((t, n) => n === i ? { ...t, status: 'checking' } : t))
+    try {
+      const r = await fetch(`/api/validation/plant-config/${designCaseId}?check_tag=${encodeURIComponent(tagName)}`)
+      const j = await r.json()
+      setTags(prev => prev.map((t, n) => n === i
+        ? { ...t, status: j.exists ? 'found' : 'not_found', sample_value: j.sample_value, last_seen: j.last_seen }
+        : t))
+    } catch {
+      setTags(prev => prev.map((t, n) => n === i ? { ...t, status: 'not_found' } : t))
+    }
+  }
+
+  const handleSave = async () => {
+    if (!mode) return
+    setSaving(true); setSaveErr('')
+    try {
+      const res = await fetch(`/api/validation/plant-config/${designCaseId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plant_data_mode:    mode,
+          tags:               tags.map(t => ({ furnace_id: t.furnace_id, pass_id: t.pass_id, tag_name: t.tag_name, tag_unit: t.tag_unit })),
+          fuel_gas_flow_tag:  fuelTag || null,
+          fuel_gas_lhv_kj_kg: fuelLHV,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setSaveErr(json.error ?? 'Save failed'); return }
+      setSaveOk(true)
+      setTimeout(() => setSaveOk(false), 3000)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const tinp = 'w-full border border-gray-200 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 bg-white'
+  const tsel = 'border border-gray-200 rounded-md px-1.5 py-1.5 text-xs bg-white focus:outline-none w-full'
+
+  return (
+    <div className="col-span-2 space-y-4 pt-4 border-t border-gray-100">
+      <div>
+        <p className="text-xs font-semibold text-gray-800">Plant Data Configuration</p>
+        <p className="text-[11px] text-gray-400 mt-0.5">
+          Tell the system how plant C₂H₄ is measured in your DCS historian. Saved once per design case — required to compute COT bias.
+        </p>
+      </div>
+
+      {/* Mode selector — 3 radio cards */}
+      <div className="grid grid-cols-3 gap-2.5">
+        {MODE_OPTIONS.map(opt => {
+          const active = mode === opt.key
+          return (
+            <button
+              key={opt.key}
+              type="button"
+              disabled={disabled}
+              onClick={() => handleMode(opt.key)}
+              className={`text-left rounded-xl border px-3 py-3 transition-all text-xs disabled:opacity-40 disabled:cursor-not-allowed ${
+                active ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-400'
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className={`w-3 h-3 rounded-full border-2 shrink-0 flex items-center justify-center ${active ? 'border-white' : 'border-gray-400'}`}>
+                  {active && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                </span>
+                <span className="font-semibold text-[11px]">{opt.label}</span>
+              </div>
+              <p className={`text-[10px] leading-relaxed ${active ? 'text-gray-300' : 'text-gray-400'}`}>{opt.desc}</p>
+              <p className={`text-[10px] mt-1.5 font-medium ${active ? 'text-blue-300' : 'text-blue-500'}`}>→ {opt.computes}</p>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Tag mapping table */}
+      {mode && (
+        <div className="rounded-lg border border-gray-100 overflow-hidden">
+          <table className="w-full text-xs">
+            <thead className="bg-gray-50 text-gray-500 uppercase tracking-wider text-[10px]">
+              <tr>
+                {mode !== 'header'   && <th className="px-3 py-2 text-left font-semibold">Furnace</th>}
+                {mode === 'per_pass' && <th className="px-3 py-2 text-left font-semibold">Pass</th>}
+                {mode === 'header'   && <th className="px-3 py-2 text-left font-semibold">Label</th>}
+                <th className="px-3 py-2 text-left font-semibold">Tag Name</th>
+                <th className="px-3 py-2 text-left font-semibold w-24">Unit</th>
+                <th className="px-3 py-2 text-left font-semibold">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {tags.map((t, i) => (
+                <tr key={i}>
+                  {mode !== 'header' && (
+                    <td className="px-3 py-2 font-medium text-gray-600 capitalize whitespace-nowrap">
+                      {t.furnace_id?.replace(/_/g, ' ')}
+                    </td>
+                  )}
+                  {mode === 'per_pass' && (
+                    <td className="px-3 py-2 text-gray-500 capitalize whitespace-nowrap">
+                      {t.pass_id?.replace(/_/g, ' ')}
+                    </td>
+                  )}
+                  {mode === 'header' && (
+                    <td className="px-3 py-2 text-gray-500 whitespace-nowrap">Cracked gas C₂H₄</td>
+                  )}
+                  <td className="px-3 py-2">
+                    <input
+                      value={t.tag_name}
+                      placeholder="e.g. FIC_2401_C2H4_YLD"
+                      className={tinp}
+                      disabled={disabled}
+                      onChange={e => updateTag(i, 'tag_name', e.target.value)}
+                      onBlur={() => checkTag(t.tag_name, i)}
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <select value={t.tag_unit} className={tsel} disabled={disabled}
+                      onChange={e => updateTag(i, 'tag_unit', e.target.value as TagRow['tag_unit'])}>
+                      <option value="wt%">wt%</option>
+                      <option value="kg/hr">kg/hr</option>
+                      <option value="fraction">fraction</option>
+                    </select>
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap"><TagStatus row={t} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Energy balance — optional, collapsible */}
+      {mode && (
+        <div>
+          <button type="button" onClick={() => setEnergyOpen(v => !v)}
+            className="flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-gray-600 transition-colors">
+            <span className="text-[10px]">{energyOpen ? '▾' : '▸'}</span>
+            Energy Balance (Optional)
+          </button>
+          {energyOpen && (
+            <div className="mt-3 grid grid-cols-2 gap-4 pl-3 border-l-2 border-gray-100">
+              <div>
+                <label className="block text-[10px] text-gray-500 mb-1">Fuel gas flow tag</label>
+                <input value={fuelTag} placeholder="e.g. FIG_4501_FG_FLOW"
+                  className={tinp} disabled={disabled}
+                  onChange={e => { setFuelTag(e.target.value); setSaveOk(false) }} />
+              </div>
+              <div>
+                <label className="block text-[10px] text-gray-500 mb-1">LHV (kJ/kg)</label>
+                <input type="number" value={fuelLHV} className={tinp} disabled={disabled}
+                  onChange={e => { setFuelLHV(Number(e.target.value)); setSaveOk(false) }} />
+              </div>
+              <p className="col-span-2 text-[10px] text-gray-400 -mt-2">
+                Used to compute thermal efficiency. Leave blank to skip energy balance.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Save */}
+      {mode && (
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={handleSave}
+            disabled={disabled || saving || tags.every(t => !t.tag_name.trim())}
+            className="btn-ghost text-sm disabled:opacity-40 disabled:cursor-not-allowed">
+            {saving ? 'Saving…' : 'Save Configuration'}
+          </button>
+          {saveOk && <span className="text-xs text-emerald-600 font-medium">✓ Configuration saved</span>}
+          {saveErr && <span className="text-xs text-red-500">{saveErr}</span>}
+          {!saveOk && !saveErr && tags.some(t => t.status === 'found') && (
+            <span className="text-[10px] text-amber-600">Save to apply changes before starting validation</span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function ValidationPage() {
   const today = new Date().toISOString().slice(0, 10)
@@ -275,11 +602,18 @@ export default function ValidationPage() {
   const [pollData,    setPollData]    = useState<ValidationStatusResponse | null>(null)
   const [biasReport,  setBiasReport]  = useState<ValidationBiasReport | null>(null)
   const [promoted,    setPromoted]    = useState<PromoteResult | null>(null)
-  const [busyStart,   setBusyStart]   = useState(false)
-  const [busyBias,    setBusyBias]    = useState(false)
-  const [busyPromote, setBusyPromote] = useState(false)
-  const [errMsg,      setErrMsg]      = useState('')
-  const [showHow,     setShowHow]     = useState(false)
+  const [busyStart,        setBusyStart]        = useState(false)
+  const [busyBias,         setBusyBias]         = useState(false)
+  const [busyPromote,      setBusyPromote]      = useState(false)
+  const [errMsg,           setErrMsg]           = useState('')
+  const [showHow,          setShowHow]          = useState(false)
+  const [plantConfigSaved, setPlantConfigSaved] = useState(false)
+  const [plantHasFound,    setPlantHasFound]    = useState(false)
+
+  const handlePlantConfigChange = useCallback((saved: boolean, hasFound: boolean) => {
+    setPlantConfigSaved(saved)
+    setPlantHasFound(hasFound)
+  }, [])
 
   const { data: rawDcs } = useSWR<DesignCase[]>('/api/design-cases', fetcher, { refreshInterval: 60_000 })
   const designCases: DesignCase[] = Array.isArray(rawDcs) ? rawDcs : []
@@ -379,6 +713,8 @@ export default function ValidationPage() {
     setBiasReport(null)
     setStartResult(null)
     setPollData(null)
+    setPlantConfigSaved(false)
+    setPlantHasFound(false)
   }
 
   const f = (k: keyof SetupForm, v: string) => setForm(prev => ({ ...prev, [k]: v }))
@@ -453,6 +789,15 @@ export default function ValidationPage() {
             </select>
           </div>
 
+          {/* ── Plant Data Configuration — shown when a design case is selected ── */}
+          {form.design_case_id && (
+            <PlantDataConfig
+              designCaseId={Number(form.design_case_id)}
+              disabled={phase === 'running'}
+              onConfigChange={handlePlantConfigChange}
+            />
+          )}
+
           <div className="col-span-2">
             <label className={lbl}>Mass Balance Filter</label>
             <div className="flex gap-2 mt-1">
@@ -500,9 +845,19 @@ export default function ValidationPage() {
 
         {errMsg && <p className="text-sm text-red-500">{errMsg}</p>}
 
+        {form.design_case_id && !plantConfigSaved && (
+          <p className="text-[11px] text-amber-600">
+            ⚠ Save plant data configuration above before starting — COT bias cannot be computed without it.
+          </p>
+        )}
+        {form.design_case_id && plantConfigSaved && !plantHasFound && (
+          <p className="text-[11px] text-amber-600">
+            ⚠ At least one plant tag must show "Found" in historian before starting.
+          </p>
+        )}
         <button
           onClick={handleStart}
-          disabled={busyStart || phase === 'running' || !form.design_case_id}
+          disabled={busyStart || phase === 'running' || !form.design_case_id || !plantConfigSaved || !plantHasFound}
           className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {busyStart ? 'Starting…' : phase === 'running' ? 'Validation running…' : 'Start Validation →'}
@@ -623,9 +978,19 @@ export default function ValidationPage() {
                     ? 'border-blue-200 bg-blue-50'
                     : 'border-amber-200 bg-amber-50'
                 }`}>
-                  <p className="text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                    Recommended Calibration Parameters
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                      Recommended Calibration Parameters
+                    </p>
+                    {biasReport.plant_data_mode && (
+                      <span className="text-[10px] text-gray-400 bg-white border border-gray-200 rounded px-2 py-0.5">
+                        {biasReport.plant_data_mode === 'header' && 'Combined header mode'}
+                        {biasReport.plant_data_mode === 'per_furnace' && 'Per-furnace mode'}
+                        {biasReport.plant_data_mode === 'per_pass' && 'Per-pass mode'}
+                      </span>
+                    )}
+                  </div>
+
                   {biasReport.recommended_cot_bias != null ? (
                     <div className="grid grid-cols-2 gap-x-10 gap-y-2 text-sm">
                       <div>
@@ -658,12 +1023,27 @@ export default function ValidationPage() {
                           </p>
                         </div>
                       </div>
+                      {/* Per-furnace bias note based on mode */}
+                      <div className="col-span-2 pt-1 border-t border-blue-100">
+                        {biasReport.plant_data_mode === 'header' ? (
+                          <p className="text-[10px] text-gray-500">
+                            ℹ Per-furnace bias not available — header mode computes global COT bias only.
+                          </p>
+                        ) : biasReport.per_furnace_bias_availability === 'computed' ? (
+                          <p className="text-[10px] text-gray-500">
+                            Per-furnace residual bias — see table below (3c).
+                          </p>
+                        ) : (
+                          <p className="text-[10px] text-gray-500">
+                            ℹ Per-furnace bias: no plant data matched — tags may not have historian values in this date range.
+                          </p>
+                        )}
+                      </div>
                     </div>
                   ) : (
                     <p className="text-sm text-amber-800">
                       COT bias cannot be computed — plant C₂H₄ yield data not available.
-                      Run will complete but bias recommendation requires manual input once
-                      plant yield analyser tags are configured.
+                      Configure plant yield tags in Section 1 and ensure at least one tag is found in the historian.
                     </p>
                   )}
                 </div>

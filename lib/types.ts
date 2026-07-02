@@ -191,4 +191,5 @@ export interface ValidationBiasReport {
   recommended_cot_bias: number | null      // °C offset to apply to DCS COT
   c2h4_error_before_bias: number | null    // % error at raw DCS COT
   c2h4_error_after_bias:  number | null    // estimated residual after correction
+  plant_data_mode: 'header' | 'per_furnace' | 'per_pass' | null
 }
