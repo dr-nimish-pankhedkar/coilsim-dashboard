@@ -11,6 +11,191 @@ type Phase = 'setup' | 'running' | 'results' | 'promoted'
 interface PreflightCheck { name: string; ok: boolean; detail: string }
 interface PreflightResult { design_case_id: number; name: string; all_ok: boolean; checks: PreflightCheck[] }
 
+// ── How It Works modal ───────────────────────────────────────────────────────
+const STEPS = [
+  { n: 1, title: 'Pull DCS history',    body: 'Completed simulation_tasks from the selected date range are bucketed by the chosen sample interval.' },
+  { n: 2, title: 'Filter noisy points', body: 'Rows with COT < 780 °C (plugged-tube indicator) or a frozen dilution ratio (>7 days unchanged) are dropped.' },
+  { n: 3, title: 'Queue CoilSim runs',  body: 'One validation_results shell row and one simulation_task (type = "validation") are inserted per surviving data point at raw DCS COT.' },
+  { n: 4, title: 'Worker runs CoilSim', body: 'The Python worker picks up each task, writes exp.txt from DCS conditions, executes the CoilSim engine, and writes yields back to validation_results.' },
+  { n: 5, title: 'Fit COT bias',        body: 'After all runs complete, /compute-bias uses a 0.18 wt%/°C ethane sensitivity to derive the COT offset that closes the C₂H₄ gap vs. plant data.' },
+  { n: 6, title: 'Acceptance gate',     body: 'Yield errors, run failure rate, and thermal efficiency are checked. N/A criteria (no plant tag) are shown as ⚠ amber — they do not block promotion.' },
+  { n: 7, title: 'Promote',             body: 'On approval the design case is set as the active operating case. The fitted COT bias is applied to every subsequent hourly CoilSim run automatically.' },
+]
+
+function HowItWorksModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(15,20,30,0.55)', backdropFilter: 'blur(3px)' }}
+      onClick={onClose}
+    >
+      <div
+        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <p className="text-sm font-semibold text-gray-900">How Validation Works</p>
+            <p className="text-xs text-gray-400 mt-0.5">7-step backend pipeline from DCS history to operating case</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-700 transition-colors text-xl leading-none"
+            aria-label="Close"
+          >×</button>
+        </div>
+
+        {/* Body — two columns */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left: steps */}
+          <div className="w-[52%] overflow-y-auto px-6 py-5 space-y-4 border-r border-gray-100">
+            {STEPS.map(s => (
+              <div key={s.n} className="flex gap-3">
+                <span
+                  className="shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold"
+                  style={{ background: '#1976d2', color: '#fff' }}
+                >{s.n}</span>
+                <div>
+                  <p className="text-xs font-semibold text-gray-800">{s.title}</p>
+                  <p className="text-[11px] text-gray-500 leading-relaxed mt-0.5">{s.body}</p>
+                </div>
+              </div>
+            ))}
+            <p className="text-[10px] text-gray-300 pt-2">
+              Click anywhere outside to close
+            </p>
+          </div>
+
+          {/* Right: flowchart */}
+          <div className="flex-1 overflow-auto flex items-start justify-center px-4 py-5">
+            <ValidationFlowchart />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ValidationFlowchart() {
+  // Palette
+  const C = { blue: '#1976d2', blueLt: '#e3f0fb', gray: '#64748b', grayLt: '#f1f5f9',
+               amber: '#b45309', amberLt: '#fef3c7', green: '#15803d', greenLt: '#dcfce7',
+               border: '#cbd5e1', text: '#1e293b', dim: '#94a3b8', white: '#ffffff' }
+
+  const W = 260, H = 570
+  const bw = 148, bh = 34   // box width/height
+  const cx = W / 2           // centre x
+  const lx = cx - bw / 2     // left edge of boxes
+
+  // Node y positions
+  const Y = [30, 105, 180, 255, 330, 405, 488, 488]
+  // arrow tip: bottom of current box → top of next
+  const arr = (y: number) => (
+    <line x1={cx} y1={y + bh} x2={cx} y2={y + bh + 37} stroke={C.border} strokeWidth={1.5}
+      markerEnd="url(#arrowhead)" />
+  )
+
+  const box = (
+    y: number, label: string, sub: string,
+    fill: string, stroke: string, textCol = C.text
+  ) => (
+    <g key={y}>
+      <rect x={lx} y={y} width={bw} height={bh} rx={6}
+        fill={fill} stroke={stroke} strokeWidth={1.2} />
+      <text x={cx} y={y + 13} textAnchor="middle" fill={textCol}
+        fontSize={9} fontWeight={600} fontFamily="ui-monospace,monospace">{label}</text>
+      <text x={cx} y={y + 24} textAnchor="middle" fill={C.dim}
+        fontSize={7.5} fontFamily="system-ui,sans-serif">{sub}</text>
+    </g>
+  )
+
+  const diamond = (y: number) => {
+    const mx = cx, my = y + 20
+    const pts = `${mx},${my - 18} ${mx + 36},${my} ${mx},${my + 18} ${mx - 36},${my}`
+    return (
+      <g key={y}>
+        <polygon points={pts} fill={C.amberLt} stroke={C.amber} strokeWidth={1.2} />
+        <text x={mx} y={my - 3} textAnchor="middle" fill={C.amber}
+          fontSize={8} fontWeight={700} fontFamily="system-ui,sans-serif">Acceptance</text>
+        <text x={mx} y={my + 9} textAnchor="middle" fill={C.amber}
+          fontSize={8} fontFamily="system-ui,sans-serif">Gate</text>
+      </g>
+    )
+  }
+
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} xmlns="http://www.w3.org/2000/svg"
+      style={{ fontFamily: 'system-ui,sans-serif', overflow: 'visible' }}>
+      <defs>
+        <marker id="arrowhead" markerWidth={6} markerHeight={6} refX={3} refY={3} orient="auto">
+          <path d="M0,0 L0,6 L6,3 Z" fill={C.border} />
+        </marker>
+        <marker id="arrowGreen" markerWidth={6} markerHeight={6} refX={3} refY={3} orient="auto">
+          <path d="M0,0 L0,6 L6,3 Z" fill={C.green} />
+        </marker>
+        <marker id="arrowAmber" markerWidth={6} markerHeight={6} refX={3} refY={3} orient="auto">
+          <path d="M0,0 L0,6 L6,3 Z" fill={C.amber} />
+        </marker>
+      </defs>
+
+      {/* Step 1 — DCS History */}
+      {box(Y[0], 'DCS Historian', 'completed simulation_tasks', C.blueLt, C.blue)}
+      {arr(Y[0])}
+
+      {/* Step 2 — Filter */}
+      {box(Y[1], 'Filter', 'COT < 780 · stale composition', C.grayLt, C.border)}
+      {arr(Y[1])}
+
+      {/* Step 3 — Queue */}
+      {box(Y[2], 'Queue runs', 'validation_results + simulation_tasks', C.grayLt, C.border)}
+      {arr(Y[2])}
+
+      {/* Step 4 — Worker */}
+      {box(Y[3], 'CoilSim Worker', 'exp.txt → engine → yields', C.blueLt, C.blue)}
+      {arr(Y[3])}
+
+      {/* Step 5 — Fit bias */}
+      {box(Y[4], 'Fit COT Bias', '0.18 wt%/°C sensitivity', C.blueLt, C.blue)}
+      {arr(Y[4])}
+
+      {/* Step 6 — Gate (diamond) */}
+      {diamond(Y[5])}
+
+      {/* Arrows from gate */}
+      {/* ✓ Promote — straight down */}
+      <line x1={cx} y1={Y[5] + 38} x2={cx} y2={Y[5] + 60} stroke={C.green} strokeWidth={1.5}
+        markerEnd="url(#arrowGreen)" />
+      <rect x={lx} y={Y[5] + 60} width={bw} height={bh} rx={6}
+        fill={C.greenLt} stroke={C.green} strokeWidth={1.2} />
+      <text x={cx} y={Y[5] + 73} textAnchor="middle" fill={C.green}
+        fontSize={9} fontWeight={600} fontFamily="ui-monospace,monospace">Promote</text>
+      <text x={cx} y={Y[5] + 84} textAnchor="middle" fill={C.dim}
+        fontSize={7.5}>set as active operating case</text>
+
+      {/* ✗ Requires review — right side arm */}
+      <line x1={cx + 36} y1={Y[5] + 20} x2={cx + 80} y2={Y[5] + 20}
+        stroke={C.amber} strokeWidth={1.5} markerEnd="url(#arrowAmber)" />
+      <text x={cx + 84} y={Y[5] + 17} fill={C.amber} fontSize={7.5} fontWeight={600}>
+        Requires
+      </text>
+      <text x={cx + 84} y={Y[5] + 28} fill={C.amber} fontSize={7.5}>
+        review
+      </text>
+
+      {/* Step labels on left */}
+      {[1,2,3,4,5].map((n, i) => (
+        <text key={n} x={lx - 6} y={Y[i] + 21} textAnchor="end"
+          fill={C.dim} fontSize={8} fontWeight={600}>
+          {n}
+        </text>
+      ))}
+      <text x={lx - 6} y={Y[5] + 22} textAnchor="end" fill={C.dim} fontSize={8} fontWeight={600}>6</text>
+      <text x={lx - 6} y={Y[5] + 78} textAnchor="end" fill={C.dim} fontSize={8} fontWeight={600}>7</text>
+    </svg>
+  )
+}
+
 interface SetupForm {
   design_case_id: string
   start_date: string
@@ -94,6 +279,7 @@ export default function ValidationPage() {
   const [busyBias,    setBusyBias]    = useState(false)
   const [busyPromote, setBusyPromote] = useState(false)
   const [errMsg,      setErrMsg]      = useState('')
+  const [showHow,     setShowHow]     = useState(false)
 
   const { data: rawDcs } = useSWR<DesignCase[]>('/api/design-cases', fetcher, { refreshInterval: 60_000 })
   const designCases: DesignCase[] = Array.isArray(rawDcs) ? rawDcs : []
@@ -200,12 +386,28 @@ export default function ValidationPage() {
   // ── render ───────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6 max-w-4xl">
+      {/* How It Works modal */}
+      {showHow && <HowItWorksModal onClose={() => setShowHow(false)} />}
+
       {/* Header */}
-      <div>
-        <h1 className="text-xl font-semibold text-gray-900">Validation</h1>
-        <p className="text-sm text-gray-400 mt-0.5">
-          Batch-validate a design case against historical DCS data · close energy &amp; material balance · promote to operating case
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-gray-900">Validation</h1>
+          <p className="text-sm text-gray-400 mt-0.5">
+            Batch-validate a design case against historical DCS data · close energy &amp; material balance · promote to operating case
+          </p>
+        </div>
+        <button
+          onClick={() => setShowHow(true)}
+          className="shrink-0 flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-700 border border-gray-200 hover:border-gray-400 rounded-lg px-3 py-1.5 transition-colors"
+          title="How validation works"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <circle cx={12} cy={12} r={10} />
+            <path strokeLinecap="round" d="M12 16v-4m0-4h.01" />
+          </svg>
+          How it works
+        </button>
       </div>
 
       {/* ── Section 1: Setup ──────────────────────────────────────────────────── */}
