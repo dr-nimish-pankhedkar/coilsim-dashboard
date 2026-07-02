@@ -16,7 +16,6 @@ interface SetupForm {
   start_date: string
   end_date: string
   mb_filter_pct: '1' | '2'
-  cot_bias_degc: string
   sample_interval_hrs: '1' | '4' | '8' | '12'
 }
 
@@ -83,7 +82,6 @@ export default function ValidationPage() {
     start_date:          d90,
     end_date:            today,
     mb_filter_pct:       '2',
-    cot_bias_degc:       '20',
     sample_interval_hrs: '1',
   })
   const [phase,       setPhase]       = useState<Phase>('setup')
@@ -138,7 +136,6 @@ export default function ValidationPage() {
           start_date:          form.start_date,
           end_date:            form.end_date,
           mb_filter_pct:       Number(form.mb_filter_pct),
-          cot_bias_degc:       Number(form.cot_bias_degc),
           sample_interval_hrs: Number(form.sample_interval_hrs),
         }),
       })
@@ -241,16 +238,6 @@ export default function ValidationPage() {
             <input type="date" value={form.end_date}
               onChange={e => f('end_date', e.target.value)}
               className={inp} disabled={phase === 'running'} />
-          </div>
-
-          <div>
-            <label className={lbl}>COT Bias (°C)</label>
-            <input type="number" step="0.5" value={form.cot_bias_degc}
-              onChange={e => f('cot_bias_degc', e.target.value)}
-              placeholder="e.g. 20" className={inp} disabled={phase === 'running'} />
-            <p className="text-[10px] text-gray-400 mt-1">
-              Added to DCS COT before each CoilSim run to match radiant box conditions.
-            </p>
           </div>
 
           <div>
@@ -427,6 +414,57 @@ export default function ValidationPage() {
 
             {biasReport && (
               <div className="space-y-6">
+
+                {/* 3-pre — Recommended Calibration Parameters */}
+                <div className={`rounded-xl border px-5 py-4 space-y-3 ${
+                  biasReport.recommended_cot_bias != null
+                    ? 'border-blue-200 bg-blue-50'
+                    : 'border-amber-200 bg-amber-50'
+                }`}>
+                  <p className="text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Recommended Calibration Parameters
+                  </p>
+                  {biasReport.recommended_cot_bias != null ? (
+                    <div className="grid grid-cols-2 gap-x-10 gap-y-2 text-sm">
+                      <div>
+                        <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">COT Bias</p>
+                        <p className="text-2xl font-bold text-blue-800 tabular-nums">
+                          {biasReport.recommended_cot_bias >= 0 ? '+' : ''}{biasReport.recommended_cot_bias.toFixed(1)} °C
+                        </p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          Add to DCS COT before each hourly CoilSim run
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <div>
+                          <p className="text-[10px] text-gray-500 uppercase tracking-wide">C₂H₄ error before bias</p>
+                          <p className={`text-sm font-semibold tabular-nums ${
+                            biasReport.c2h4_error_before_bias != null && Math.abs(biasReport.c2h4_error_before_bias) > 5
+                              ? 'text-red-700' : 'text-gray-800'
+                          }`}>
+                            {biasReport.c2h4_error_before_bias != null
+                              ? `${biasReport.c2h4_error_before_bias >= 0 ? '+' : ''}${biasReport.c2h4_error_before_bias.toFixed(2)}%`
+                              : '—'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-gray-500 uppercase tracking-wide">C₂H₄ error after bias (est.)</p>
+                          <p className="text-sm font-semibold text-emerald-700 tabular-nums">
+                            {biasReport.c2h4_error_after_bias != null
+                              ? `${biasReport.c2h4_error_after_bias >= 0 ? '+' : ''}${biasReport.c2h4_error_after_bias.toFixed(2)}%`
+                              : '—'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-amber-800">
+                      COT bias cannot be computed — plant C₂H₄ yield data not available.
+                      Run will complete but bias recommendation requires manual input once
+                      plant yield analyser tags are configured.
+                    </p>
+                  )}
+                </div>
 
                 {/* 3a — Material Balance */}
                 <div>

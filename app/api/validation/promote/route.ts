@@ -41,6 +41,8 @@ export async function POST(req: NextRequest) {
 
     await client.query('COMMIT')
 
+    // cot_bias_degc was written by /compute-bias as a computed output and is read back here unchanged.
+    // The hourly worker reads this value from the active design case to apply to each DCS COT before running CoilSim.
     return NextResponse.json({
       success:      true,
       name:         dc.name,

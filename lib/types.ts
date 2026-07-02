@@ -177,6 +177,7 @@ export interface ValidationBiasReport {
     sim_c2h4_avg: number
     bias_kg_hr: number
   }>
+  per_furnace_bias_availability: 'computed' | 'unavailable'
   monthly: Array<{
     month: string
     sim_c2h4_mt: number
@@ -186,4 +187,8 @@ export interface ValidationBiasReport {
   run_failure_rate_pct: number
   overall_c2h4_error_pct: number | null
   avg_coil_heat_kj_hr: number | null
+  // COT bias — computed output, not user input
+  recommended_cot_bias: number | null      // °C offset to apply to DCS COT
+  c2h4_error_before_bias: number | null    // % error at raw DCS COT
+  c2h4_error_after_bias:  number | null    // estimated residual after correction
 }

@@ -19,7 +19,6 @@ export async function POST(req: NextRequest) {
       start_date,
       end_date,
       mb_filter_pct = 2.0,
-      cot_bias_degc = 20.0,
       sample_interval_hrs = 1,
     } = body
 
@@ -37,21 +36,22 @@ export async function POST(req: NextRequest) {
     }
     const dc = dcRes.rows[0]
 
-    // Mark design case as running, clear old validation results
+    // Mark design case as running, clear old validation results.
+    // cot_bias_degc is NOT set here — it is an output computed by /compute-bias after all runs complete.
     await client.query('BEGIN')
     await client.query(
       `UPDATE cs_py_int.design_cases SET
-        validation_status      = 'running',
-        validation_start_date  = $1,
-        validation_end_date    = $2,
-        validation_mb_filter   = $3,
-        cot_bias_degc          = $4,
-        validation_runs_total  = NULL,
-        validation_runs_failed = NULL,
+        validation_status         = 'running',
+        validation_start_date     = $1,
+        validation_end_date       = $2,
+        validation_mb_filter      = $3,
+        cot_bias_degc             = NULL,
+        validation_runs_total     = NULL,
+        validation_runs_failed    = NULL,
         validation_c2h4_error_pct = NULL,
-        validated_at           = NULL
-       WHERE id = $5`,
-      [start_date, end_date, mb_filter_pct, cot_bias_degc, design_case_id]
+        validated_at              = NULL
+       WHERE id = $4`,
+      [start_date, end_date, mb_filter_pct, design_case_id]
     )
     // Remove stale validation results for this design case
     await client.query(
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
           cop_input,
           created_at,
           date_trunc('hour', created_at) +
-            (FLOOR(EXTRACT(HOUR FROM created_at) / $5) * $5 || ' hours')::interval AS bucket
+            (FLOOR(EXTRACT(HOUR FROM created_at) / $4) * $4 || ' hours')::interval AS bucket
         FROM cs_py_int.simulation_tasks
         WHERE status = 'Completed'
           AND task_type != 'validation'
@@ -101,12 +101,12 @@ export async function POST(req: NextRequest) {
         CASE
           WHEN prev_dil IS NOT NULL
             AND ABS(dilution_ratio::numeric - prev_dil::numeric) < 0.0001
-            AND (created_at - prev_ts) > ($6 || ' days')::interval
+            AND (created_at - prev_ts) > ($5 || ' days')::interval
           THEN true ELSE false
         END AS composition_stale
       FROM with_prev
       ORDER BY created_at
-    `, [start_date, end_date, mb_filter_pct, cot_bias_degc, sample_interval_hrs, STALE_COMPOSITION_DAYS])
+    `, [start_date, end_date, mb_filter_pct, sample_interval_hrs, STALE_COMPOSITION_DAYS])
 
     const rows = histRes.rows
     const breakdown: FilterBreakdown = {
@@ -116,7 +116,8 @@ export async function POST(req: NextRequest) {
       queued: 0,
     }
 
-    // Queue validation runs for each surviving data point
+    // Queue validation runs for each surviving data point.
+    // No COT bias applied at queue time — bias is computed as an output after all runs complete.
     for (const row of rows) {
       const cotDcs = parseFloat(row.cot_input)
 
@@ -132,25 +133,24 @@ export async function POST(req: NextRequest) {
         continue
       }
 
-      const cotCoilsim = cotDcs + parseFloat(cot_bias_degc)
       const flow = parseFloat(row.flow_input) || 1300
       const dil  = parseFloat(row.dilution_ratio) || 0.35
       const cit  = parseFloat(row.cit_input) || 668
       const cip  = parseFloat(row.cip_input) || 2.59
       const cop  = parseFloat(row.cop_input) || 2.053
 
-      // 1. Pre-insert validation_results shell row
+      // 1. Pre-insert validation_results shell row — cot_coilsim_degc = raw DCS COT (no bias yet)
       const vrRes = await client.query(`
         INSERT INTO cs_py_int.validation_results
           (design_case_id, timestamp, furnace_id, pass_id,
            hc_flow_kg_hr, shc_ratio, cit_degc, cot_dcs_degc, cot_coilsim_degc, cop_atm,
            run_status)
-        VALUES ($1, $2, 'furnace_1', 'pass_1', $3, $4, $5, $6, $7, $8, 'pending')
+        VALUES ($1, $2, 'furnace_1', 'pass_1', $3, $4, $5, $6, $6, $7, 'pending')
         RETURNING id
-      `, [design_case_id, row.created_at, flow, dil, cit, cotDcs, cotCoilsim, cop])
+      `, [design_case_id, row.created_at, flow, dil, cit, cotDcs, cop])
       const validationResultId = vrRes.rows[0].id
 
-      // 2. Queue simulation task
+      // 2. Queue simulation task — cot_input = raw DCS COT, no offset
       await client.query(`
         INSERT INTO cs_py_int.simulation_tasks
           (status, task_type, project_name, design_case_id,
@@ -167,7 +167,7 @@ export async function POST(req: NextRequest) {
       `, [
         dc.project_name, design_case_id,
         dc.coil_id, dc.feed_id,
-        cotCoilsim, flow, dil, cit, cip, cop,
+        cotDcs, flow, dil, cit, cip, cop,
         validationResultId,
       ])
 
