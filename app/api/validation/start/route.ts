@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic'
 interface FilterBreakdown {
   total_scanned: number
   cot_low: number
+  stale_composition: number
   queued: number
 }
 
@@ -61,6 +62,9 @@ export async function POST(req: NextRequest) {
     // Pull historical DCS data from completed simulation_tasks in the date range.
     // These are tasks the DCS simulator inserted that the worker has already processed.
     // sample_interval_hrs: take one reading per N-hour bucket (earliest in each bucket).
+    // Stale composition filter: flag rows where dilution_ratio hasn't changed in >7 days
+    // (proxy for a frozen/stale feed composition — real tag-based filter when hourly_data schema confirmed).
+    const STALE_COMPOSITION_DAYS = 7
     const histRes = await client.query(`
       WITH bucketed AS (
         SELECT
@@ -85,14 +89,30 @@ export async function POST(req: NextRequest) {
         SELECT DISTINCT ON (bucket) *
         FROM bucketed
         ORDER BY bucket, id ASC
+      ),
+      with_prev AS (
+        SELECT *,
+          LAG(dilution_ratio) OVER (ORDER BY created_at) AS prev_dil,
+          LAG(created_at)     OVER (ORDER BY created_at) AS prev_ts
+        FROM deduped
       )
-      SELECT * FROM deduped ORDER BY created_at
-    `, [start_date, end_date, mb_filter_pct, cot_bias_degc, sample_interval_hrs])
+      SELECT *,
+        -- stale = dilution_ratio unchanged for > STALE_COMPOSITION_DAYS days
+        CASE
+          WHEN prev_dil IS NOT NULL
+            AND ABS(dilution_ratio::numeric - prev_dil::numeric) < 0.0001
+            AND (created_at - prev_ts) > ($6 || ' days')::interval
+          THEN true ELSE false
+        END AS composition_stale
+      FROM with_prev
+      ORDER BY created_at
+    `, [start_date, end_date, mb_filter_pct, cot_bias_degc, sample_interval_hrs, STALE_COMPOSITION_DAYS])
 
     const rows = histRes.rows
     const breakdown: FilterBreakdown = {
       total_scanned: rows.length,
       cot_low: 0,
+      stale_composition: 0,
       queued: 0,
     }
 
@@ -103,6 +123,12 @@ export async function POST(req: NextRequest) {
       // Phase 1 filter: COT < 780 → plugged tube indicator
       if (cotDcs < 780) {
         breakdown.cot_low++
+        continue
+      }
+
+      // Phase 2 filter: stale composition
+      if (row.composition_stale) {
+        breakdown.stale_composition++
         continue
       }
 
@@ -163,7 +189,7 @@ export async function POST(req: NextRequest) {
         total_scanned:     breakdown.total_scanned,
         cot_low:           breakdown.cot_low,
         mass_balance:      0,   // requires plant mass balance tags (not yet configured)
-        composition_stale: 0,   // requires per-timestamp composition vectors
+        composition_stale: breakdown.stale_composition,
         queued:            breakdown.queued,
       },
     })

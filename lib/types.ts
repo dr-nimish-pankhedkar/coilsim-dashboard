@@ -164,7 +164,7 @@ export interface ValidationStatusResponse {
 
 export interface ValidationAcceptanceCheck {
   name: string
-  passed: boolean
+  passed: boolean | null  // null = N/A (plant data not configured) — shown as ⚠️ amber
   value: string
   threshold: string
 }

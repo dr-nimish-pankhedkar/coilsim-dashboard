@@ -90,34 +90,36 @@ export async function POST(req: NextRequest) {
     const DESIGN_EFFICIENCY_LOW  = 85
     const DESIGN_EFFICIENCY_HIGH = 92
     // Assume fired duty unavailable — skip energy check if avg_coil_heat is null
+    // na = check cannot be evaluated (plant data not yet available)
+    // na checks are shown as ⚠️ amber in the UI, not ✓ green, and do NOT block promotion
     const checks = [
       {
         name:      'C₂H₄ overall error ≤ ±2%',
-        passed:    overallC2H4ErrorPct != null ? Math.abs(overallC2H4ErrorPct) <= 2 : true,
-        value:     overallC2H4ErrorPct != null ? `${overallC2H4ErrorPct.toFixed(2)}%` : 'N/A — plant yield data not configured',
+        passed:    overallC2H4ErrorPct != null ? Math.abs(overallC2H4ErrorPct) <= 2 : null,
+        value:     overallC2H4ErrorPct != null ? `${overallC2H4ErrorPct.toFixed(2)}%` : 'N/A — plant yield analyser tags not configured',
         threshold: '±2%',
       },
       {
         name:      'No month exceeds ±5%',
-        passed:    true,   // N/A without plant data
-        value:     'N/A — plant yield data not configured',
+        passed:    null as boolean | null,  // N/A without plant data
+        value:     'N/A — plant yield analyser tags not configured',
         threshold: '±5%',
       },
       {
         name:      'H₂+CH₄ error ≤ ±5%',
-        passed:    h2Ch4ErrorPct != null ? Math.abs(h2Ch4ErrorPct) <= 5 : true,
-        value:     h2Ch4ErrorPct != null ? `${h2Ch4ErrorPct.toFixed(2)}%` : 'N/A',
+        passed:    h2Ch4ErrorPct != null ? Math.abs(h2Ch4ErrorPct) <= 5 : null,
+        value:     h2Ch4ErrorPct != null ? `${h2Ch4ErrorPct.toFixed(2)}%` : 'N/A — plant yield analyser tags not configured',
         threshold: '±5%',
       },
       {
         name:      'C3+ error ≤ ±5%',
-        passed:    c3PlusErrorPct != null ? Math.abs(c3PlusErrorPct) <= 5 : true,
-        value:     c3PlusErrorPct != null ? `${c3PlusErrorPct.toFixed(2)}%` : 'N/A',
+        passed:    c3PlusErrorPct != null ? Math.abs(c3PlusErrorPct) <= 5 : null,
+        value:     c3PlusErrorPct != null ? `${c3PlusErrorPct.toFixed(2)}%` : 'N/A — plant yield analyser tags not configured',
         threshold: '±5%',
       },
       {
         name:      'Thermal efficiency within design range (85–92%)',
-        passed:    true,   // skip without fired duty data
+        passed:    null as boolean | null,  // N/A without fired duty tag
         value:     'N/A — fuel gas flow tag not configured',
         threshold: '85–92%',
       },
@@ -129,7 +131,8 @@ export async function POST(req: NextRequest) {
       },
     ]
 
-    const allPassed = checks.every(c => c.passed)
+    // allPassed: only evaluate checks with real data (null = N/A, skipped from gate)
+    const allPassed = checks.every(c => c.passed !== false)
     const nextStatus = allPassed ? 'complete' : 'requires_review'
 
     // Persist bias per furnace as JSONB and update design case status

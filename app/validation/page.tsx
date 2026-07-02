@@ -8,6 +8,9 @@ const fetcher = (url: string) => fetch(url).then(r => r.json())
 
 type Phase = 'setup' | 'running' | 'results' | 'promoted'
 
+interface PreflightCheck { name: string; ok: boolean; detail: string }
+interface PreflightResult { design_case_id: number; name: string; all_ok: boolean; checks: PreflightCheck[] }
+
 interface SetupForm {
   design_case_id: string
   start_date: string
@@ -96,6 +99,10 @@ export default function ValidationPage() {
 
   const { data: rawDcs } = useSWR<DesignCase[]>('/api/design-cases', fetcher, { refreshInterval: 60_000 })
   const designCases: DesignCase[] = Array.isArray(rawDcs) ? rawDcs : []
+
+  const preflightKey = form.design_case_id && phase === 'setup'
+    ? `/api/validation/preflight/${form.design_case_id}` : null
+  const { data: preflight } = useSWR<PreflightResult>(preflightKey, fetcher, { refreshInterval: 30_000 })
 
   // Poll validation status while running
   const pollStatus = useCallback(async () => {
@@ -276,6 +283,31 @@ export default function ValidationPage() {
           </div>
 
         </div>
+
+        {/* Preflight checks — shown once a design case is selected */}
+        {preflight && (
+          <div className="rounded-lg border border-gray-100 overflow-hidden">
+            <div className="bg-gray-50 px-4 py-2 flex items-center gap-2">
+              <span className={`text-xs font-semibold ${preflight.all_ok ? 'text-emerald-700' : 'text-amber-700'}`}>
+                {preflight.all_ok ? '✓ Pre-flight OK' : '⚠ Pre-flight issues'}
+              </span>
+              <span className="text-[10px] text-gray-400">{preflight.name}</span>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {preflight.checks.map((c, i) => (
+                <div key={i} className="flex items-start gap-2.5 px-4 py-2.5">
+                  <span className={`text-xs mt-0.5 shrink-0 ${c.ok ? 'text-emerald-600' : 'text-amber-500'}`}>
+                    {c.ok ? '✓' : '⚠'}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-gray-700">{c.name}</p>
+                    <p className="text-[10px] text-gray-400">{c.detail}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {errMsg && <p className="text-sm text-red-500">{errMsg}</p>}
 
@@ -518,33 +550,45 @@ export default function ValidationPage() {
               sub="All criteria must pass before the design case can be promoted to operating case."
             >
               <div className="space-y-2">
-                {biasReport.checks.map((check, i) => (
-                  <div key={i} className={`flex items-start gap-3 rounded-lg border px-4 py-3 ${
-                    check.passed
+                {biasReport.checks.map((check, i) => {
+                  const isNA = check.passed === null
+                  const borderCls = isNA
+                    ? 'border-amber-100 bg-amber-50'
+                    : check.passed
                       ? 'border-emerald-100 bg-emerald-50'
                       : 'border-red-100 bg-red-50'
-                  }`}>
-                    <span className={`text-base mt-0.5 shrink-0 ${check.passed ? 'text-emerald-600' : 'text-red-500'}`}>
-                      {check.passed ? '✓' : '✗'}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-medium ${check.passed ? 'text-emerald-900' : 'text-red-900'}`}>
-                        {check.name}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        Value: <span className="font-medium">{check.value}</span>
-                        <span className="ml-3">Threshold: {check.threshold}</span>
-                      </p>
+                  const iconCls = isNA ? 'text-amber-500' : check.passed ? 'text-emerald-600' : 'text-red-500'
+                  const textCls = isNA ? 'text-amber-900' : check.passed ? 'text-emerald-900' : 'text-red-900'
+                  const icon    = isNA ? '⚠' : check.passed ? '✓' : '✗'
+                  return (
+                    <div key={i} className={`flex items-start gap-3 rounded-lg border px-4 py-3 ${borderCls}`}>
+                      <span className={`text-base mt-0.5 shrink-0 ${iconCls}`}>{icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className={`text-sm font-medium ${textCls}`}>{check.name}</p>
+                          {isNA && <span className="text-[10px] text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded">N/A</span>}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Value: <span className="font-medium">{check.value}</span>
+                          <span className="ml-3">Threshold: {check.threshold}</span>
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
 
               {biasReport.all_passed ? (
                 <div className="space-y-3">
-                  <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-800">
-                    All acceptance criteria passed. This design case is ready to be promoted.
-                  </div>
+                  {biasReport.checks.some(c => c.passed === null) ? (
+                    <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+                      Criteria with real data all passed. ⚠ Some checks are N/A (plant yield / fired duty tags not yet configured) — promotion is allowed but full verification is incomplete.
+                    </div>
+                  ) : (
+                    <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-800">
+                      All acceptance criteria passed. This design case is ready to be promoted.
+                    </div>
+                  )}
                   <button
                     onClick={handlePromote}
                     disabled={busyPromote}
