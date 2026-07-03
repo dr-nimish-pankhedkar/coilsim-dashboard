@@ -23,6 +23,165 @@ const COIL_TYPES = [
   { ncoil: 14, name: 'M-coil',         passes: 4,  desc: 'M-shaped multi-pass coil',            icon: 'M'  },
 ]
 
+// ── Coil schematic diagrams + info modal ─────────────────────────────────────
+
+const COIL_INFO: Record<number, { detail: string; feedstock: string }> = {
+  2:  { detail: 'Most widely deployed cracker coil. Four vertical passes connected by three U-bends — two at the bottom, one at the top. Good balance of yield, selectivity and runlength.',                              feedstock: 'Ethane, propane, naphtha' },
+  3:  { detail: 'Simplest geometry: one inlet pass, one outlet pass, single U-bend at the bottom. Very short residence time; preferred for high-ethane feeds where minimal side reactions matter.',                      feedstock: 'Ethane, propane' },
+  4:  { detail: 'Ultra-short two-pass coil designed for maximum selectivity. An integral Transfer Line Exchanger (TLE) immediately quenches products, stopping secondary reactions.',                                    feedstock: 'Ethane (high conversion)' },
+  5:  { detail: 'Lummus SRT-I: eight passes in a single serpentine stream. High-capacity design for naphtha cracking; balances heat distribution and tube runlength.',                                                  feedstock: 'Naphtha, gas oil' },
+  6:  { detail: 'Lummus SRT-II / SRT-III: eight passes split into two independent four-pass streams fed in parallel. Improves heat uniformity and allows separate flow control per stream.',                            feedstock: 'Naphtha, gas oil' },
+  7:  { detail: 'Lummus SRT-IV: eight passes with wider tube spacing compared to SRT-I. Higher throughput per furnace; often used for heavier naphtha and AGO feeds.',                                                  feedstock: 'Naphtha, AGO' },
+  8:  { detail: 'Technip GK-I: four-pass design with a tapered outlet section. The progressive diameter reduction toward the outlet manages pressure drop and maintains high olefin selectivity.',                      feedstock: 'Naphtha, propane' },
+  9:  { detail: 'Technip GK-VI: four-pass coil with a distinctive pigtail (helical loop) at the outlet. The loop promotes mixing and ensures uniform exit temperature before the TLE.',                               feedstock: 'Naphtha, ethane' },
+  10: { detail: 'Linde Pyrocrack: parallel U-tube design available in 1-1, 2-2, or 4-2 configurations (inlets–outlets). Short residence time and low pressure drop; favoured for ethane and propane.',                feedstock: 'Ethane, propane, naphtha' },
+  12: { detail: 'Lummus SRT-VI: eight-pass high-severity variant with shorter tube length. The reduced residence time pushes ethylene selectivity at higher severity without excessive coke deposition.',               feedstock: 'Naphtha, AGO (high severity)' },
+  13: { detail: 'SL-2 Short-Long two-cell coil: two shorter inlet passes feed into two longer outlet passes. The geometry optimises heat flux profile — high flux on the short inlet, moderate on the long outlet.',    feedstock: 'Propane, naphtha' },
+  14: { detail: 'M-coil: four-pass M-shaped tube bundle when viewed from above. The symmetric arrangement provides excellent heat distribution across the tube cross-section and reduces hot-spot risk.',               feedstock: 'Naphtha, gas oil' },
+}
+
+function CoilSchematic({ ncoil }: { ncoil: number }) {
+  const t: React.SVGProps<SVGPathElement> = {
+    fill: 'none', stroke: '#1e293b', strokeWidth: 3.5,
+    strokeLinecap: 'round', strokeLinejoin: 'round',
+  }
+  const lbl = (x: number, y: number, text: string) => (
+    <text key={text + x} x={x} y={y} fontSize={7.5} fill="#94a3b8"
+      fontFamily="ui-monospace,monospace" textAnchor="middle">{text}</text>
+  )
+
+  switch (ncoil) {
+    case 2: return (   // W-coil 4-pass
+      <svg viewBox="0 0 112 130" className="w-full">
+        {lbl(20, 8, 'IN')}{lbl(92, 8, 'OUT')}
+        <path d="M20,12 V112 A12,12 0 0 0 44,112 V12 A12,12 0 0 1 68,12 V112 A12,12 0 0 0 92,112 V12" {...t}/>
+      </svg>
+    )
+    case 3: return (   // U-coil 2-pass
+      <svg viewBox="0 0 112 130" className="w-full">
+        {lbl(30, 8, 'IN')}{lbl(82, 8, 'OUT')}
+        <path d="M30,12 V112 A26,26 0 0 0 82,112 V12" {...t}/>
+      </svg>
+    )
+    case 4: return (   // Millisecond 2-pass + TLE
+      <svg viewBox="0 0 112 140" className="w-full">
+        {lbl(30, 8, 'IN')}{lbl(82, 8, 'OUT')}
+        <path d="M30,12 V58 A26,26 0 0 0 82,58 V12" {...t}/>
+        <rect x="18" y="65" width="76" height="22" rx="3" fill="#fef3c7" stroke="#d97706" strokeWidth={1.5}/>
+        <text x="56" y="80" fontSize={9} fill="#92400e" fontFamily="ui-sans-serif,sans-serif" fontWeight="600" textAnchor="middle">TLE</text>
+        {lbl(56, 102, 'Transfer Line Exchanger')}
+      </svg>
+    )
+    case 5: return (   // SRT-I 8-pass single stream
+      <svg viewBox="0 0 108 130" className="w-full">
+        {lbl(8, 8, 'IN')}{lbl(100, 8, 'OUT')}
+        <path d="M8,12 V112 A6.5,6.5 0 0 0 21,112 V12 A6.5,6.5 0 0 1 34,12 V112 A6.5,6.5 0 0 0 47,112 V12 A6.5,6.5 0 0 1 60,12 V112 A6.5,6.5 0 0 0 73,112 V12 A6.5,6.5 0 0 1 86,12 V112 A6.5,6.5 0 0 0 99,112 V12" {...t} strokeWidth={3}/>
+      </svg>
+    )
+    case 6: return (   // SRT-II/III 8-pass dual stream
+      <svg viewBox="0 0 116 135" className="w-full">
+        {lbl(8, 8, 'IN1')}{lbl(68, 8, 'IN2')}{lbl(108, 8, 'OUT')}
+        <path d="M8,12 V112 A6.5,6.5 0 0 0 21,112 V12 A6.5,6.5 0 0 1 34,12 V112 A6.5,6.5 0 0 0 47,112 V12" {...t} strokeWidth={3}/>
+        <path d="M68,12 V112 A6.5,6.5 0 0 0 81,112 V12 A6.5,6.5 0 0 1 94,12 V112 A6.5,6.5 0 0 0 107,112 V12" {...t} strokeWidth={3}/>
+        <line x1="57" y1="15" x2="57" y2="118" stroke="#cbd5e1" strokeWidth={1} strokeDasharray="4 3"/>
+        {lbl(57, 130, 'parallel streams')}
+      </svg>
+    )
+    case 7: return (   // SRT-IV 8-pass wider spacing
+      <svg viewBox="0 0 126 130" className="w-full">
+        {lbl(10, 8, 'IN')}{lbl(116, 8, 'OUT')}
+        <path d="M10,12 V112 A8,8 0 0 0 26,112 V12 A8,8 0 0 1 42,12 V112 A8,8 0 0 0 58,112 V12 A8,8 0 0 1 74,12 V112 A8,8 0 0 0 90,112 V12 A8,8 0 0 1 106,12 V112 A8,8 0 0 0 122,112 V12" {...t} strokeWidth={3}/>
+      </svg>
+    )
+    case 8: return (   // Technip GK-I 4-pass tapered outlet
+      <svg viewBox="0 0 115 130" className="w-full">
+        {lbl(20, 8, 'IN')}{lbl(92, 8, 'OUT')}
+        <path d="M20,12 V112 A12,12 0 0 0 44,112 V12 A12,12 0 0 1 68,12 V112 A12,12 0 0 0 92,112 V12" {...t}/>
+        <path d="M92,12 L100,5 L110,9" fill="none" stroke="#64748b" strokeWidth={2} strokeLinecap="round"/>
+      </svg>
+    )
+    case 9: return (   // Technip GK-VI 4-pass with pigtail
+      <svg viewBox="0 0 122 145" className="w-full">
+        {lbl(20, 8, 'IN')}{lbl(92, 8, 'OUT')}
+        <path d="M20,12 V112 A12,12 0 0 0 44,112 V12 A12,12 0 0 1 68,12 V112 A12,12 0 0 0 92,112 V12" {...t}/>
+        <path d="M92,12 Q112,12 112,30 Q112,48 92,48 Q74,48 74,30 Q74,18 84,13" fill="none" stroke="#1e293b" strokeWidth={2.5} strokeLinecap="round"/>
+      </svg>
+    )
+    case 10: return (  // Linde Pyrocrack 2-2 parallel U-tubes
+      <svg viewBox="0 0 116 140" className="w-full">
+        {lbl(22, 8, 'IN')}{lbl(50, 8, 'IN')}{lbl(66, 8, 'OUT')}{lbl(94, 8, 'OUT')}
+        <path d="M22,12 V112 A14,14 0 0 0 50,112 V12" {...t}/>
+        <path d="M66,12 V112 A14,14 0 0 0 94,112 V12" {...t}/>
+        {lbl(58, 132, '2-2 configuration')}
+      </svg>
+    )
+    case 12: return (  // SRT-VI 8-pass shorter = high severity
+      <svg viewBox="0 0 108 115" className="w-full">
+        {lbl(8, 8, 'IN')}{lbl(100, 8, 'OUT')}
+        <path d="M8,12 V82 A6.5,6.5 0 0 0 21,82 V12 A6.5,6.5 0 0 1 34,12 V82 A6.5,6.5 0 0 0 47,82 V12 A6.5,6.5 0 0 1 60,12 V82 A6.5,6.5 0 0 0 73,82 V12 A6.5,6.5 0 0 1 86,12 V82 A6.5,6.5 0 0 0 99,82 V12" {...t} strokeWidth={3}/>
+        {lbl(54, 100, 'shorter tubes → higher severity')}
+      </svg>
+    )
+    case 13: return (  // SL-2 Short-Long 2-cell
+      <svg viewBox="0 0 112 135" className="w-full">
+        {lbl(20, 8, 'IN')}{lbl(92, 8, 'OUT')}
+        <text x="32" y="52" fontSize={7} fill="#94a3b8" fontFamily="ui-monospace,monospace" textAnchor="middle">short</text>
+        <text x="80" y="8" fontSize={7} fill="#94a3b8" fontFamily="ui-monospace,monospace" textAnchor="middle">long</text>
+        <path d="M20,56 V112 A12,12 0 0 0 44,112 V56" {...t}/>
+        <path d="M44,56 A12,12 0 0 1 68,56" fill="none" stroke="#1e293b" strokeWidth={2} strokeLinecap="round"/>
+        <path d="M68,12 V112 A12,12 0 0 0 92,112 V12" {...t}/>
+      </svg>
+    )
+    case 14: return (  // M-coil 4-pass M-shaped
+      <svg viewBox="0 0 112 130" className="w-full">
+        {lbl(20, 8, 'IN')}{lbl(92, 8, 'OUT')}
+        <text x="56" y="68" fontSize={28} fill="#f1f5f9" fontFamily="ui-sans-serif,sans-serif" fontWeight="800" textAnchor="middle">M</text>
+        <path d="M20,12 V112 A12,12 0 0 0 44,112 V12 A12,12 0 0 1 68,12 V112 A12,12 0 0 0 92,112 V12" {...t}/>
+      </svg>
+    )
+    default: return (
+      <svg viewBox="0 0 112 130" className="w-full">
+        <text x="56" y="68" fontSize={11} fill="#94a3b8" textAnchor="middle" fontFamily="ui-sans-serif,sans-serif">No diagram</text>
+      </svg>
+    )
+  }
+}
+
+function CoilInfoModal({ coil, onClose }: { coil: typeof COIL_TYPES[0]; onClose: () => void }) {
+  const info = COIL_INFO[coil.ncoil]
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(15,20,30,0.52)', backdropFilter: 'blur(3px)' }}
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-xs overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+          <div>
+            <p className="text-sm font-semibold text-gray-900">{coil.name}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{coil.passes} passes · ncoil = {coil.ncoil}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-300 hover:text-gray-600 text-xl leading-none transition-colors">×</button>
+        </div>
+        <div className="px-8 py-5 bg-gray-50 border-b border-gray-100 flex items-center justify-center">
+          <CoilSchematic ncoil={coil.ncoil} />
+        </div>
+        <div className="px-5 py-4 space-y-2">
+          <p className="text-xs text-gray-600 leading-relaxed">{info?.detail ?? 'No additional information.'}</p>
+          {info?.feedstock && (
+            <p className="text-xs text-gray-400 mt-1">
+              <span className="font-medium text-gray-500">Typical feedstock: </span>{info.feedstock}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Severity type values MUST match CoilSim exp.txt shooting_flag integers exactly.
 // Confirmed from working model (YSB_Geo_Operating): COT = shooting_flag 2.
 // CoilSim reserve value 1 for "specified flux profile / no shooting iteration".
@@ -461,6 +620,7 @@ function DesignCaseWizard() {
     { _key: 2, component_id: 2,  wt_frac: 0.0146, in_conversion: false },
   ])
   const [productIds, setProductIds] = useState('4 5 8 9 2 1')
+  const [showCoilInfo, setShowCoilInfo] = useState<number | null>(null)
 
   const totalWt  = comps.reduce((s, c) => s + (c.wt_frac || 0), 0)
   const wtWarn   = Math.abs(totalWt - 1) > 0.001
@@ -949,9 +1109,20 @@ function DesignCaseWizard() {
                       <span className={`text-lg font-black font-mono ${selectedCoilType.ncoil === ct.ncoil ? 'text-white' : 'text-gray-300'}`}>
                         {ct.icon}
                       </span>
-                      <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${selectedCoilType.ncoil === ct.ncoil ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400'}`}>
-                        n={ct.ncoil}
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${selectedCoilType.ncoil === ct.ncoil ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                          n={ct.ncoil}
+                        </span>
+                        <button
+                          onClick={e => { e.stopPropagation(); setShowCoilInfo(ct.ncoil) }}
+                          className={`text-[10px] w-4 h-4 flex items-center justify-center rounded-full border transition-opacity ${
+                            selectedCoilType.ncoil === ct.ncoil
+                              ? 'border-white/30 text-white/60 hover:text-white hover:border-white/60'
+                              : 'border-gray-200 text-gray-300 hover:text-gray-500 hover:border-gray-400'
+                          }`}
+                          aria-label={`View ${ct.name} diagram`}
+                        >ⓘ</button>
+                      </div>
                     </div>
                     <p className="text-sm font-semibold">{ct.name}</p>
                     <p className={`text-xs mt-0.5 ${selectedCoilType.ncoil === ct.ncoil ? 'text-gray-300' : 'text-gray-400'}`}>
@@ -2080,6 +2251,12 @@ function DesignCaseWizard() {
           )}
         </div>
       )}
+
+      {/* Coil diagram modal */}
+      {showCoilInfo !== null && (() => {
+        const coil = COIL_TYPES.find(c => c.ncoil === showCoilInfo)
+        return coil ? <CoilInfoModal coil={coil} onClose={() => setShowCoilInfo(null)} /> : null
+      })()}
     </div>
   )
 }
