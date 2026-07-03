@@ -1115,13 +1115,13 @@ function DesignCaseWizard() {
                         </span>
                         <button
                           onClick={e => { e.stopPropagation(); setShowCoilInfo(ct.ncoil) }}
-                          className={`text-[10px] w-4 h-4 flex items-center justify-center rounded-full border transition-opacity ${
+                          className={`text-xs w-5 h-5 flex items-center justify-center rounded-full font-bold transition-colors ${
                             selectedCoilType.ncoil === ct.ncoil
-                              ? 'border-white/30 text-white/60 hover:text-white hover:border-white/60'
-                              : 'border-gray-200 text-gray-300 hover:text-gray-500 hover:border-gray-400'
+                              ? 'bg-white/20 text-white hover:bg-white/35'
+                              : 'bg-blue-50 text-blue-500 hover:bg-blue-100'
                           }`}
                           aria-label={`View ${ct.name} diagram`}
-                        >ⓘ</button>
+                        >i</button>
                       </div>
                     </div>
                     <p className="text-sm font-semibold">{ct.name}</p>
