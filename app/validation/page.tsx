@@ -257,6 +257,341 @@ function Section({ title, sub, children }: { title: string; sub?: string; childr
   )
 }
 
+// ── Stage 1: Design Case Validation ─────────────────────────────────────────
+
+const DESIGN_COMPONENTS = [
+  { key: 'H2',        label: 'H₂',                   group: 'Light' },
+  { key: 'CH4',       label: 'CH₄',                  group: 'Light' },
+  { key: 'C2H2',      label: 'C₂H₂ (acetylene)',      group: 'C₂' },
+  { key: 'C2H4',      label: 'C₂H₄ (ethylene)',       group: 'C₂' },
+  { key: 'C2H6',      label: 'C₂H₆ (ethane)',         group: 'C₂' },
+  { key: 'ProDiene',  label: 'Propadiene / MA',        group: 'C₃' },
+  { key: 'C3H6',      label: 'C₃H₆ (propylene)',      group: 'C₃' },
+  { key: 'C3H8',      label: 'C₃H₈ (propane)',        group: 'C₃' },
+  { key: '1.3-C4H6',  label: '1,3-Butadiene',         group: 'C₄' },
+  { key: '1C4H8',     label: '1-Butene',              group: 'C₄' },
+  { key: 'nC4H10',    label: 'n-C₄H₁₀ (n-butane)',   group: 'C₄' },
+  { key: 'iC4H10',    label: 'i-C₄H₁₀ (isobutane)',  group: 'C₄' },
+  { key: 'Benzene',   label: 'Benzene',                group: 'BTX' },
+  { key: 'Toluene',   label: 'Toluene',                group: 'BTX' },
+  { key: 'Xylene',    label: 'Xylene',                group: 'BTX' },
+  { key: 'Styrene',   label: 'Styrene',               group: 'BTX' },
+]
+
+const FEED_PRESETS: Record<string, { label: string; components: string[] }> = {
+  ethane:  { label: 'Ethane cracker',  components: ['H2','CH4','C2H4','C2H6'] },
+  propane: { label: 'Propane cracker', components: ['H2','CH4','C2H4','C2H6','C3H6','C3H8'] },
+  naphtha: { label: 'Naphtha cracker', components: ['H2','CH4','C2H4','C3H6','1.3-C4H6','Benzene','Toluene'] },
+  gasoil:  { label: 'Gas oil cracker', components: ['H2','CH4','C2H4','C3H6','Benzene','Toluene','Xylene'] },
+}
+
+const DC_GROUPS = ['Light','C₂','C₃','C₄','BTX'] as const
+
+function DesignValidation({ designCaseId, onAccepted }: {
+  designCaseId: number
+  onAccepted: (biasDegc: number | null) => void
+}) {
+  const [expanded,  setExpanded]  = useState(false)
+  const [preset,    setPreset]    = useState<string | null>(null)
+  const [selected,  setSelected]  = useState<Set<string>>(new Set())
+  const [measYields,setMeasYields]= useState<Record<string,string>>({})
+  const [cond, setCond] = useState({ cot:'', flow:'', shc:'', cit:'650', cip:'2.59', cop:'2.053' })
+  const [busy, setBusy] = useState(false)
+  const [errMsg, setErrMsg] = useState('')
+
+  const { data, mutate } = useSWR<any>(
+    `/api/validation/design-validate/${designCaseId}`,
+    fetcher,
+    { refreshInterval: (data: any) => data?.run?.status === 'running' ? 5000 : 0 }
+  )
+
+  // Notify parent when validated
+  useEffect(() => {
+    if (data?.design_validation_status === 'validated') {
+      onAccepted(data.design_cot_bias_degc ?? null)
+    }
+  }, [data?.design_validation_status, data?.design_cot_bias_degc, onAccepted])
+
+  // Pre-fill form from last run when expanding
+  useEffect(() => {
+    const run = data?.run
+    if (!run || !expanded) return
+    if (run.cot_degc)   setCond(p => ({ ...p, cot: String(run.cot_degc) }))
+    if (run.flow_kg_hr) setCond(p => ({ ...p, flow: String(run.flow_kg_hr) }))
+    if (run.shc_ratio)  setCond(p => ({ ...p, shc: String(run.shc_ratio) }))
+    if (run.cit_degc)   setCond(p => ({ ...p, cit: String(run.cit_degc) }))
+    if (run.cip_atm)    setCond(p => ({ ...p, cip: String(run.cip_atm) }))
+    if (run.cop_atm)    setCond(p => ({ ...p, cop: String(run.cop_atm) }))
+    if (run.selected_components?.length) setSelected(new Set(run.selected_components))
+    if (run.measured_yields) setMeasYields(Object.fromEntries(Object.entries(run.measured_yields).map(([k,v]) => [k, String(v)])))
+  }, [expanded])
+
+  function applyPreset(key: string) {
+    setPreset(key)
+    const comps = FEED_PRESETS[key]?.components ?? []
+    setSelected(new Set(comps))
+    setMeasYields(prev => Object.fromEntries(Object.entries(prev).filter(([k]) => comps.includes(k))))
+  }
+
+  function toggleComp(key: string) {
+    setSelected(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
+  }
+
+  function parseCsv(file: File) {
+    const reader = new FileReader()
+    reader.onload = e => {
+      const text = (e.target?.result ?? '') as string
+      const newY: Record<string,string> = {}
+      const newSel = new Set(selected)
+      for (const line of text.split('\n')) {
+        const [rawComp, rawVal] = line.split(',').map(s => s.trim())
+        if (!rawComp || !rawVal) continue
+        const val = parseFloat(rawVal)
+        if (isNaN(val)) continue  // skip header
+        const match = DESIGN_COMPONENTS.find(c =>
+          c.key.toLowerCase() === rawComp.toLowerCase() ||
+          c.label.toLowerCase().includes(rawComp.toLowerCase())
+        )
+        if (match) { newY[match.key] = String(val); newSel.add(match.key) }
+      }
+      setMeasYields(prev => ({ ...prev, ...newY }))
+      setSelected(newSel)
+    }
+    reader.readAsText(file)
+  }
+
+  async function handleRun() {
+    const measured: Record<string,number> = {}
+    for (const k of selected) {
+      const v = parseFloat(measYields[k] ?? '')
+      if (!isNaN(v)) measured[k] = v
+    }
+    if (!cond.cot || !cond.flow || !cond.shc) { setErrMsg('COT, HC flow, and SHC are required.'); return }
+    if (!Object.keys(measured).length)         { setErrMsg('Enter at least one measured yield.'); return }
+    setErrMsg(''); setBusy(true)
+    try {
+      const res = await fetch(`/api/validation/design-validate/${designCaseId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cot_degc: Number(cond.cot), flow_kg_hr: Number(cond.flow), shc_ratio: Number(cond.shc),
+          cit_degc: Number(cond.cit), cip_atm: Number(cond.cip), cop_atm: Number(cond.cop),
+          measured_yields: measured, selected_components: Array.from(selected),
+        }),
+      })
+      if (!res.ok) { const d = await res.json(); setErrMsg(d.error ?? 'Error'); return }
+      mutate()
+    } catch (e: any) { setErrMsg(e.message) }
+    finally { setBusy(false) }
+  }
+
+  async function handleAccept() {
+    const run = data?.run
+    if (!run) return
+    await fetch(`/api/validation/design-validate/${designCaseId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'accept', run_id: run.id, bias_degc: run.bias_degc }),
+    })
+    mutate()
+    setExpanded(false)
+  }
+
+  const isValidated = data?.design_validation_status === 'validated'
+  const run = data?.run
+  const isRunning = run?.status === 'running'
+
+  return (
+    <div className={`card border-2 transition-colors ${isValidated ? 'border-emerald-200 bg-emerald-50/30' : 'border-blue-100 bg-blue-50/20'}`}>
+      {/* Header row */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${isValidated ? 'bg-emerald-600 text-white' : 'bg-blue-600 text-white'}`}>1</div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Design Case Validation</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {isValidated
+                ? `Design COT bias accepted: ${data.design_cot_bias_degc != null ? `${Number(data.design_cot_bias_degc) > 0 ? '+' : ''}${data.design_cot_bias_degc} °C` : '0 °C'} — applied in plant validation (Stage 2)`
+                : 'Validate model against design / guarantee data. Computes COT bias applied before plant validation.'}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {isValidated && <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-medium">✓ Stage 1 done</span>}
+          <button
+            onClick={() => setExpanded(v => !v)}
+            className="text-xs text-gray-400 hover:text-gray-700 px-2 py-1 rounded border border-gray-200 hover:border-gray-400 transition-colors"
+          >{expanded ? 'Collapse ▲' : isValidated ? 'Re-validate' : 'Configure ▼'}</button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="mt-5 space-y-5 border-t border-gray-100 pt-5">
+
+          {/* Feed preset buttons */}
+          <div>
+            <p className={lbl}>Feed type — pre-selects typical components</p>
+            <div className="flex flex-wrap gap-2 mt-1">
+              {Object.entries(FEED_PRESETS).map(([key, val]) => (
+                <button key={key} onClick={() => applyPreset(key)}
+                  className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors ${preset === key ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-blue-300'}`}
+                >{val.label}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Component checklist */}
+          <div>
+            <p className={lbl}>Components to match</p>
+            <div className="grid grid-cols-2 gap-x-8 gap-y-3 mt-2">
+              {['Light','C₂','C₃','C₄','BTX'].map(group => {
+                const comps = DESIGN_COMPONENTS.filter(c => c.group === group || (group === 'C₂' && c.group === 'C₂') || (group === 'C₃' && c.group === 'C₃') || (group === 'C₄' && c.group === 'C₄') || (group === 'BTX' && c.group === 'BTX') || (group === 'Light' && c.group === 'Light'))
+                if (!comps.length) return null
+                return (
+                  <div key={group}>
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">{group}</p>
+                    <div className="space-y-1">
+                      {comps.map(c => (
+                        <label key={c.key} className="flex items-center gap-2 cursor-pointer select-none">
+                          <input type="checkbox" checked={selected.has(c.key)} onChange={() => toggleComp(c.key)}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"/>
+                          <span className="text-xs text-gray-700">{c.label}
+                            {c.key === 'C2H4' && <span className="ml-1 text-[9px] text-blue-400 font-medium">bias driver</span>}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Operating conditions */}
+          <div>
+            <p className={lbl}>Design operating conditions</p>
+            <div className="grid grid-cols-3 gap-3 mt-1">
+              {([['cot','COT (°C)','840'],['flow','HC Flow (kg/h)','1300'],['shc','SHC ratio','0.35'],
+                 ['cit','CIT (°C)','650'],['cip','CIP (atm)','2.59'],['cop','COP (atm)','2.053']] as [string,string,string][]).map(([k,label,ph]) => (
+                <div key={k}>
+                  <label className={lbl}>{label}</label>
+                  <input type="number" step="any" placeholder={ph} value={cond[k as keyof typeof cond]}
+                    onChange={e => setCond(p => ({ ...p, [k]: e.target.value }))} className={inp}/>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Yield inputs + CSV upload */}
+          {selected.size > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <p className={lbl}>Measured yields (wt %)</p>
+                <label className="text-xs text-blue-600 hover:text-blue-800 cursor-pointer font-medium">
+                  ↑ Upload CSV
+                  <input type="file" accept=".csv,.txt" className="hidden"
+                    onChange={e => e.target.files?.[0] && parseCsv(e.target.files[0])}/>
+                </label>
+              </div>
+              <p className="text-[10px] text-gray-400 mb-2">CSV: two columns — Component, Yield_wt_pct (header row optional)</p>
+              <div className="grid grid-cols-4 gap-2">
+                {Array.from(selected).map(key => {
+                  const comp = DESIGN_COMPONENTS.find(c => c.key === key)
+                  return (
+                    <div key={key}>
+                      <label className={lbl}>{comp?.label ?? key}</label>
+                      <input type="number" step="any" placeholder="wt%" value={measYields[key] ?? ''}
+                        onChange={e => setMeasYields(p => ({ ...p, [key]: e.target.value }))} className={inp}/>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Running indicator */}
+          {isRunning && (
+            <div className="flex items-center gap-2 text-xs text-gray-500 py-1">
+              <div className="w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/>
+              CoilSim running design validation… polling every 5 s
+            </div>
+          )}
+
+          {/* Results */}
+          {run?.status === 'completed' && run.errors_json && (
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-gray-700">Results — last run</p>
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-200 text-gray-400 font-medium">
+                    <th className="text-left py-1.5">Component</th>
+                    <th className="text-right py-1.5">Measured</th>
+                    <th className="text-right py-1.5">Simulated</th>
+                    <th className="text-right py-1.5">Δ wt%</th>
+                    <th className="text-right py-1.5">Error %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(run.errors_json as Record<string,any>).map(([comp, e]) => (
+                    <tr key={comp} className="border-b border-gray-100">
+                      <td className="py-1.5 text-gray-700 font-medium">
+                        {DESIGN_COMPONENTS.find(c => c.key === comp)?.label ?? comp}
+                        {comp === 'C2H4' && <span className="ml-1 text-[9px] text-blue-400">bias driver</span>}
+                      </td>
+                      <td className="text-right py-1.5">{(e as any).measured.toFixed(3)}</td>
+                      <td className="text-right py-1.5">{(e as any).sim.toFixed(3)}</td>
+                      <td className={`text-right py-1.5 ${Math.abs((e as any).abs_err) > 1 ? 'text-amber-600' : 'text-gray-500'}`}>
+                        {(e as any).abs_err > 0 ? '+' : ''}{(e as any).abs_err.toFixed(3)}
+                      </td>
+                      <td className={`text-right py-1.5 ${errCls((e as any).rel_err_pct)}`}>
+                        {(e as any).rel_err_pct > 0 ? '+' : ''}{(e as any).rel_err_pct.toFixed(2)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <div>
+                  <p className="text-xs font-semibold text-blue-900">Recommended design COT bias</p>
+                  <p className="text-xl font-bold text-blue-700 mt-0.5 leading-tight">
+                    {run.bias_degc != null
+                      ? `${Number(run.bias_degc) > 0 ? '+' : ''}${run.bias_degc} °C`
+                      : 'N/A — C₂H₄ not selected'}
+                  </p>
+                  <p className="text-[10px] text-blue-500 mt-0.5">
+                    Applied to every COT in Stage 2 plant validation before queuing CoilSim
+                  </p>
+                </div>
+                <button onClick={handleAccept}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors">
+                  Accept bias →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {run?.status === 'failed' && (
+            <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded border border-red-200">
+              Design validation failed: {run.error_message ?? 'Worker error'}
+            </p>
+          )}
+
+          {errMsg && <p className="text-xs text-red-500">{errMsg}</p>}
+
+          <div className="flex items-center gap-3 pt-1">
+            <button onClick={handleRun} disabled={busy || isRunning || selected.size === 0}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors">
+              {busy || isRunning ? 'Running…' : run ? 'Re-run Design Validation' : 'Run Design Validation'}
+            </button>
+            <p className="text-[10px] text-gray-400">Worker must be active — runs one CoilSim job at the design conditions.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Plant Data Configuration ─────────────────────────────────────────────────
 interface TagRow {
   furnace_id:   string | null
@@ -609,6 +944,9 @@ export default function ValidationPage() {
   const [showHow,          setShowHow]          = useState(false)
   const [plantConfigSaved, setPlantConfigSaved] = useState(false)
   const [plantHasFound,    setPlantHasFound]    = useState(false)
+  const [designBias,       setDesignBias]       = useState<number | null>(null)
+
+  const handleDesignAccepted = useCallback((bias: number | null) => { setDesignBias(bias) }, [])
 
   const handlePlantConfigChange = useCallback((saved: boolean, hasFound: boolean) => {
     setPlantConfigSaved(saved)
@@ -764,6 +1102,21 @@ export default function ValidationPage() {
               ))}
             </select>
           </div>
+
+          {/* Stage 1 — Design Case Validation */}
+          {form.design_case_id && (
+            <div className="col-span-2">
+              <DesignValidation
+                designCaseId={Number(form.design_case_id)}
+                onAccepted={handleDesignAccepted}
+              />
+              {designBias != null && (
+                <p className="text-[10px] text-blue-600 mt-1.5">
+                  Design bias {designBias > 0 ? '+' : ''}{designBias} °C will be added to DCS COT when Stage 2 plant validation runs.
+                </p>
+              )}
+            </div>
+          )}
 
           <div>
             <label className={lbl}>Start Date</label>

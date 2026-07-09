@@ -13,13 +13,16 @@ export async function POST(req: NextRequest) {
     const { design_case_id } = await req.json()
     if (!design_case_id) return NextResponse.json({ error: 'design_case_id required' }, { status: 400 })
 
-    // Fetch design case metadata including plant data mode
+    // Fetch design case metadata
     const dcRes = await client.query(
-      `SELECT plant_data_mode FROM cs_py_int.design_cases WHERE id = $1`,
+      `SELECT plant_data_mode, design_cot_bias_degc FROM cs_py_int.design_cases WHERE id = $1`,
       [design_case_id]
     )
     if (!dcRes.rows.length) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const plantMode: 'header' | 'per_furnace' | 'per_pass' | null = dcRes.rows[0].plant_data_mode
+    // Stage 1 design bias already baked into validation COT inputs.
+    // Operating bias (residual) is computed below; total = design + operating.
+    const designBias: number = parseFloat(dcRes.rows[0].design_cot_bias_degc ?? '0') || 0
 
     // ── Run counts ───────────────────────────────────────────────────────────
     const countRes = await client.query(`
@@ -177,6 +180,9 @@ export async function POST(req: NextRequest) {
     const nextStatus = allPassed ? 'complete' : 'requires_review'
 
     // ── Persist to design_cases ──────────────────────────────────────────────
+    // cot_bias_degc = TOTAL bias applied by the hourly worker (design + operating residual).
+    // recommendedCotBias is the operating residual computed from plant data alone.
+    const totalCotBias = recommendedCotBias != null ? designBias + recommendedCotBias : null
     await client.query(`
       UPDATE cs_py_int.design_cases SET
         cot_bias_degc             = $1,
@@ -186,7 +192,7 @@ export async function POST(req: NextRequest) {
         validation_status         = $5
       WHERE id = $6
     `, [
-      recommendedCotBias,
+      totalCotBias,
       JSON.stringify(perFurnaceBiasJsonb),
       overallC2H4ErrorPct,
       failedN,

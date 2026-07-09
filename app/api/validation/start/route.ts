@@ -35,6 +35,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Design case not found' }, { status: 404 })
     }
     const dc = dcRes.rows[0]
+    // Stage 1 design COT bias — pre-applied to every validation COT so /compute-bias
+    // sees only the residual operating gap vs plant data. Total = design + operating.
+    const designBias = parseFloat(dc.design_cot_bias_degc ?? '0') || 0
 
     // Mark design case as running, clear old validation results.
     // cot_bias_degc is NOT set here — it is an output computed by /compute-bias after all runs complete.
@@ -161,7 +164,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // No COT bias applied at queue time — bias is computed as an output after all runs complete.
+    // Stage 1 design bias applied at queue time; operating bias computed after all runs complete.
     for (const row of rows) {
       const cotDcs = parseFloat(row.cot_input)
 
@@ -186,18 +189,22 @@ export async function POST(req: NextRequest) {
       // Resolve plant C2H4 for this timestamp from hourly_data (null if tag not found)
       const plantC2H4KgHr = await resolvePlantC2H4(row.created_at, flow)
 
-      // 1. Pre-insert validation_results shell row — cot_coilsim_degc = raw DCS COT (no bias yet)
+      // Apply Stage 1 design bias to COT — worker runs at this shifted value.
+      // /compute-bias will then find only the residual operating gap vs plant data.
+      const cotCoilsim = cotDcs + designBias
+
+      // 1. Pre-insert validation_results shell row
       const vrRes = await client.query(`
         INSERT INTO cs_py_int.validation_results
           (design_case_id, timestamp, furnace_id, pass_id,
            hc_flow_kg_hr, shc_ratio, cit_degc, cot_dcs_degc, cot_coilsim_degc, cop_atm,
            plant_c2h4_kg_hr, run_status)
-        VALUES ($1, $2, 'furnace_1', 'pass_1', $3, $4, $5, $6, $6, $7, $8, 'pending')
+        VALUES ($1, $2, 'furnace_1', 'pass_1', $3, $4, $5, $6, $7, $8, $9, 'pending')
         RETURNING id
-      `, [design_case_id, row.created_at, flow, dil, cit, cotDcs, cop, plantC2H4KgHr])
+      `, [design_case_id, row.created_at, flow, dil, cit, cotDcs, cotCoilsim, cop, plantC2H4KgHr])
       const validationResultId = vrRes.rows[0].id
 
-      // 2. Queue simulation task — cot_input = raw DCS COT, no offset
+      // 2. Queue simulation task — cot_input = DCS COT + design bias (Stage 1)
       await client.query(`
         INSERT INTO cs_py_int.simulation_tasks
           (status, task_type, project_name, design_case_id,
@@ -214,7 +221,7 @@ export async function POST(req: NextRequest) {
       `, [
         dc.project_name, design_case_id,
         dc.coil_id, dc.feed_id,
-        cotDcs, flow, dil, cit, cip, cop,
+        cotCoilsim, flow, dil, cit, cip, cop,
         validationResultId,
       ])
 
