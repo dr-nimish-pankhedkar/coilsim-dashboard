@@ -13,6 +13,7 @@ interface ParamRanges { cot: ParamRange; flow: ParamRange; shc: ParamRange }
 interface OptRun {
   id: number
   status: 'pending' | 'running_sims' | 'fitting' | 'complete' | 'failed'
+  n_samples: number
   n_sims_total: number
   n_sims_complete: number
   regression_type: string
