@@ -200,6 +200,9 @@ export default function OptimizationPage() {
           </p>
         </div>
 
+        {/* How it works */}
+        <HowItWorks />
+
         {/* Setup card */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-5">
           <h2 className="text-sm font-semibold text-gray-700 mb-4">Setup</h2>
@@ -441,6 +444,89 @@ export default function OptimizationPage() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function HowItWorks() {
+  const [open, setOpen] = useState(false)
+  const steps = [
+    {
+      n: '1',
+      title: 'Define parameter ranges',
+      color: 'bg-blue-100 text-blue-700',
+      body: 'Set the min / max / current value for COT, HC flow, and SHC ratio. Ranges are auto-filled from the last 30 days of DCS data (±2σ) so they reflect realistic operating variation. Tighten or widen them as needed.',
+    },
+    {
+      n: '2',
+      title: 'Latin Hypercube Sampling',
+      color: 'bg-purple-100 text-purple-700',
+      body: 'N sample points are drawn using Latin Hypercube Sampling — a stratified random design that fills the parameter space evenly. Each point is a unique (COT, flow, SHC) combination. More samples → better surrogate accuracy but longer compute time.',
+    },
+    {
+      n: '3',
+      title: 'CoilSim simulation batch',
+      color: 'bg-amber-100 text-amber-700',
+      body: 'Each sample point is queued as a CoilSim simulation task. The worker picks them up sequentially, patches exp.txt with the sampled conditions (design COT bias already applied), runs the CoilSim engine, and scrapes the C₂H₄ yield from yields.csv.',
+    },
+    {
+      n: '4',
+      title: 'Polynomial surrogate fit',
+      color: 'bg-green-100 text-green-700',
+      body: 'Once all simulations complete, a degree-2 polynomial (quadratic) is fitted to the (COT, flow, SHC) → C₂H₄ yield data using ordinary least squares. The 10-term model captures linear effects, squared terms, and two-way interactions. R² and RMSE confirm fit quality.',
+    },
+    {
+      n: '5',
+      title: 'Grid-search optimisation',
+      color: 'bg-rose-100 text-rose-700',
+      body: 'A 25×25×25 grid (≈15k points) is evaluated over the constrained parameter space using the fitted surrogate. The combination with the highest predicted C₂H₄ yield is reported as the optimal operating point, along with the estimated yield improvement vs current.',
+    },
+    {
+      n: '6',
+      title: 'Sensitivity analysis',
+      color: 'bg-teal-100 text-teal-700',
+      body: 'Each parameter is swept independently (others held at current value) through the surrogate to produce sensitivity curves. These show how yield responds to each handle individually — useful for understanding which parameter has the most leverage.',
+    },
+  ]
+
+  return (
+    <div className="mb-5 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+          </svg>
+          How it works
+        </span>
+        <svg className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="px-5 pb-5 border-t border-gray-100">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+            {steps.map(s => (
+              <div key={s.n} className="flex gap-3">
+                <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${s.color}`}>
+                  {s.n}
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-gray-800 mb-1">{s.title}</div>
+                  <div className="text-xs text-gray-500 leading-relaxed">{s.body}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-700">
+            <strong>Tip:</strong> Start with 50–100 samples for a quick exploration. If R² is below 0.90, increase samples or tighten the parameter ranges so the surrogate has less variance to capture.
+          </div>
+        </div>
+      )}
     </div>
   )
 }
