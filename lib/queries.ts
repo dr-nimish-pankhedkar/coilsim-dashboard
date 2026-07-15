@@ -224,6 +224,62 @@ export async function submitDesignCaseRun(
   }
 }
 
+export async function submitUploadedProjRun(
+  uploaded_proj_id: number,
+  project_name: string,
+  design_case_name: string,
+  p: RunParams
+): Promise<number> {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    // Upsert a design_cases record (no coil_id/feed_id — uploaded project)
+    await client.query(
+      `INSERT INTO cs_py_int.design_cases (name, project_name, uploaded_proj_id)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (project_name) DO UPDATE
+         SET name = EXCLUDED.name,
+             uploaded_proj_id = EXCLUDED.uploaded_proj_id`,
+      [design_case_name, project_name, uploaded_proj_id]
+    )
+
+    const res = await client.query<{ id: number }>(
+      `INSERT INTO cs_py_int.simulation_tasks
+         (status, task_type, project_name, uploaded_proj_id,
+          cot_input, flow_input, dilution_ratio, cit_input, cip_input, cop_input,
+          severity_type, sev_location, sev_location_pct,
+          pressure_sev_type, pressure_location, pressure_location_pct,
+          heat_flux_input_type, flux_profile,
+          run_length_sim, coke_model, coke_conduction, coke_density)
+       VALUES ('Pending','design_case',$1,$2,
+         $3,$4,$5,$6,$7,$8,
+         $9,$10,$11,
+         $12,$13,$14,
+         $15,$16,
+         $17,$18,$19,$20)
+       RETURNING id`,
+      [
+        project_name, uploaded_proj_id,
+        p.cot, p.flow, p.dilution ?? 0.35, p.cit ?? 668, p.cip ?? 2.59, p.cop ?? 2.053,
+        p.severity_type ?? 2, p.sev_location ?? 'adiabatic_pct', p.sev_location_pct ?? 60,
+        p.pressure_sev_type ?? 'cop', p.pressure_location ?? 'adiabatic_pct', p.pressure_location_pct ?? 100,
+        p.heat_flux_input_type ?? 'net', p.flux_profile ?? 1,
+        p.run_length_sim ?? 0, p.coke_model ?? 'Plehiers',
+        p.coke_conduction ?? 0.0045, p.coke_density ?? 1600,
+      ]
+    )
+
+    await client.query('COMMIT')
+    return res.rows[0].id
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
 // ── Design Cases ─────────────────────────────────────────────────────────────
 
 export async function getAllDesignCases(): Promise<DesignCase[]> {

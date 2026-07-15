@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { submitHourlyRun, submitDesignCaseRun, RunParams } from '@/lib/queries'
+import { submitHourlyRun, submitDesignCaseRun, submitUploadedProjRun, RunParams } from '@/lib/queries'
 
 export async function POST(req: NextRequest) {
   try {
@@ -49,6 +49,18 @@ export async function POST(req: NextRequest) {
       }
       const id = await submitDesignCaseRun(
         Number(coil_id), Number(feed_id), project_name,
+        design_case_name || project_name, runParams
+      )
+      return NextResponse.json({ id })
+    }
+
+    if (type === 'uploaded_proj') {
+      const { uploaded_proj_id, project_name, design_case_name } = body
+      if (!uploaded_proj_id || !project_name) {
+        return NextResponse.json({ error: 'Missing uploaded_proj_id or project_name' }, { status: 400 })
+      }
+      const id = await submitUploadedProjRun(
+        Number(uploaded_proj_id), project_name,
         design_case_name || project_name, runParams
       )
       return NextResponse.json({ id })

@@ -373,13 +373,21 @@ function Nav({ step, total, onBack, onNext, nextLabel = 'Continue →', disabled
 function DesignCaseWizard() {
   const { data: savedCoils } = useSWR<CoilGeometry[]>('/api/coil-geometries', fetcher)
   const { data: savedFeeds } = useSWR<FeedstockDefinition[]>('/api/feedstock-definitions', fetcher)
+  const { data: uploadedProjects, mutate: mutateUploaded } = useSWR<{id:number;name:string;original_filename:string;file_size_bytes:number;created_at:string}[]>('/api/projects/uploaded', fetcher)
 
   const [step, setStep] = useState(0)
 
   // ── Step 0: Project ──────────────────────────────────────────────────────
   const [dcName,   setDcName]   = useState('')
   const [projName, setProjName] = useState('')
-  const [useMode,  setUseMode]  = useState<'new'|'saved'>('new')
+  const [useMode,  setUseMode]  = useState<'new'|'saved'|'upload'>('new')
+
+  // ── Upload .proj mode ────────────────────────────────────────────────────
+  const [uploadedProjId,   setUploadedProjId]   = useState<number | null>(null)
+  const [uploadedProjName, setUploadedProjName] = useState('')
+  const [uploadDragging,   setUploadDragging]   = useState(false)
+  const [uploadError,      setUploadError]      = useState<string | null>(null)
+  const [uploadUploading,  setUploadUploading]  = useState(false)
 
   // ── Step 1: Geometry selection ──────────────────────────────────────────
   const [geomSelection, setGeomSelection] = useState<'new'|'standard'|'import'|'generic' | null>(null)
@@ -719,9 +727,57 @@ function DesignCaseWizard() {
   const [submitState, setSubmitState] = useState<'idle'|'loading'|'ok'|'err'>('idle')
   const [submitMsg,   setSubmitMsg]   = useState('')
 
+  async function handleProjFileUpload(file: File) {
+    if (!file.name.endsWith('.proj')) { setUploadError('Only .proj files accepted'); return }
+    setUploadUploading(true); setUploadError(null)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('name', uploadedProjName.trim() || file.name.replace('.proj', ''))
+      const res = await fetch('/api/projects/upload', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok) { setUploadError(data.error ?? 'Upload failed'); return }
+      setUploadedProjId(data.id)
+      setUploadedProjName(data.name)
+      mutateUploaded()
+    } catch {
+      setUploadError('Network error during upload')
+    } finally {
+      setUploadUploading(false)
+    }
+  }
+
   async function submit() {
     setSubmitState('loading'); setSubmitMsg('')
     try {
+      // ── Upload .proj mode ─────────────────────────────────────────────────
+      if (useMode === 'upload') {
+        if (!uploadedProjId || !projName.trim()) {
+          setSubmitState('err'); setSubmitMsg('Select an uploaded project and enter a project folder name.'); return
+        }
+        const runRes = await fetch('/api/run', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'uploaded_proj',
+            uploaded_proj_id: uploadedProjId,
+            project_name: projName,
+            design_case_name: dcName || projName,
+            cot: Number(cotVal), flow: Number(flow),
+            dilution: Number(dilut), cit: Number(cit), cip: Number(cip), cop: Number(cop),
+            severity_type: sevType, flux_profile: profile,
+            run_length_sim: runLengthSim ? 1 : 0,
+            coke_model: cokeModel,
+            coke_conduction: Number(cokeConduction),
+            coke_density: Number(cokeDensity),
+          }),
+        })
+        const json = await runRes.json()
+        if (!runRes.ok) { setSubmitState('err'); setSubmitMsg(json.error ?? 'Failed'); return }
+        setSubmitState('ok')
+        setSubmitMsg(`Task #${json.id} queued. Worker will pick it up shortly.`)
+        return
+      }
+
       let coil_id: number, feed_id: number
 
       if (useMode === 'saved') {
@@ -870,6 +926,7 @@ function DesignCaseWizard() {
 
   // ── Step validation ──────────────────────────────────────────────────────
   function canProceed() {
+    if (step === 0 && useMode === 'upload') return projName.trim().length > 0 && uploadedProjId !== null
     if (step === 0) return projName.trim().length > 0
     if (step === 1) return geomSelection !== null  // auto-advances on card click, but kept for safety
     if (step === 2 && useMode === 'new') {
@@ -886,11 +943,17 @@ function DesignCaseWizard() {
     return true
   }
 
-  function next() { if (step < STEPS.length - 1) setStep(s => s + 1) }
+  function next() {
+    // Upload mode: skip geometry/feedstock steps
+    if (useMode === 'upload' && step === 0) { setStep(4); return }
+    if (step < STEPS.length - 1) setStep(s => s + 1)
+  }
   function back() {
     // Reset submit state so the review page shows the Submit button again
     setSubmitState('idle')
     setSubmitMsg('')
+    // Upload mode: skip back over geometry/feedstock steps
+    if (useMode === 'upload' && step === 4) { setStep(0); return }
     if (step === 2 && geomSelection === 'standard' && importGeomSubStep === 'legs') {
       // Back within standard sub-step: go to coil_list, don't decrement step
       setImportGeomSubStep('coil_list')
@@ -930,25 +993,83 @@ function DesignCaseWizard() {
             </div>
           </div>
 
-          {/* Saved vs New */}
+          {/* Configuration source */}
           <div className="card space-y-3">
             <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Configuration source</p>
-            <div className="grid grid-cols-2 gap-3">
-              {(['new', 'saved'] as const).map(m => (
+            <div className="grid grid-cols-3 gap-3">
+              {([
+                { m: 'new',    icon: '✏️', label: 'Define new',     desc: 'Enter geometry and feedstock from scratch' },
+                { m: 'saved',  icon: '📁', label: 'Use saved',      desc: 'Pick from previously saved configurations' },
+                { m: 'upload', icon: '☁️', label: 'Upload .proj',   desc: 'Use a client-supplied CoilSim project file' },
+              ] as const).map(({ m, icon, label, desc }) => (
                 <button key={m} onClick={() => setUseMode(m)}
                   className={`rounded-xl border p-4 text-left transition-all ${
                     useMode === m ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 hover:border-gray-400 text-gray-700'
                   }`}>
-                  <p className="text-sm font-semibold">{m === 'new' ? '✏️  Define new' : '📁  Use saved'}</p>
-                  <p className={`text-xs mt-1 ${useMode === m ? 'text-gray-300' : 'text-gray-400'}`}>
-                    {m === 'new'
-                      ? 'Enter geometry and feedstock from scratch'
-                      : 'Pick from previously saved configurations'}
-                  </p>
+                  <p className="text-sm font-semibold">{icon}  {label}</p>
+                  <p className={`text-xs mt-1 ${useMode === m ? 'text-gray-300' : 'text-gray-400'}`}>{desc}</p>
                 </button>
               ))}
             </div>
           </div>
+
+          {useMode === 'upload' && (
+            <div className="card space-y-4">
+              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Upload .proj file</p>
+
+              {/* Previously uploaded projects */}
+              {(uploadedProjects ?? []).length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-500">Previously uploaded — select one or upload new:</p>
+                  {(uploadedProjects ?? []).map(up => (
+                    <div key={up.id}
+                      onClick={() => { setUploadedProjId(up.id); setUploadedProjName(up.name) }}
+                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                        uploadedProjId === up.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-400'
+                      }`}>
+                      <span className="text-lg">📄</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-800 truncate">{up.name}</div>
+                        <div className="text-[10px] text-gray-400">{up.original_filename} · {(up.file_size_bytes / 1024).toFixed(1)} KB · {new Date(up.created_at).toLocaleDateString()}</div>
+                      </div>
+                      {uploadedProjId === up.id && <span className="text-blue-500 text-xs font-semibold">Selected</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Drag-drop upload */}
+              <div>
+                <div className="text-xs text-gray-500 mb-2">{(uploadedProjects ?? []).length > 0 ? 'Or upload a new file:' : 'Drag & drop a .proj file or click to browse:'}</div>
+                <div
+                  onDragOver={e => { e.preventDefault(); setUploadDragging(true) }}
+                  onDragLeave={() => setUploadDragging(false)}
+                  onDrop={e => { e.preventDefault(); setUploadDragging(false); const f = e.dataTransfer.files[0]; if (f) handleProjFileUpload(f) }}
+                  className={`relative border-2 border-dashed rounded-xl p-6 text-center transition-colors ${uploadDragging ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-gray-400'}`}
+                >
+                  <input type="file" accept=".proj" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    onChange={e => { const f = e.target.files?.[0]; if (f) handleProjFileUpload(f) }} />
+                  {uploadUploading ? (
+                    <p className="text-sm text-blue-500">Uploading…</p>
+                  ) : (
+                    <>
+                      <p className="text-2xl mb-1">☁️</p>
+                      <p className="text-sm text-gray-500">Drop .proj file here or click to browse</p>
+                      <p className="text-[10px] text-gray-400 mt-1">Max 50 MB</p>
+                    </>
+                  )}
+                </div>
+                {uploadError && <p className="text-xs text-red-500 mt-1">{uploadError}</p>}
+                {uploadedProjId && !uploadUploading && (
+                  <p className="text-xs text-green-600 mt-1">✓ Using: {uploadedProjName}</p>
+                )}
+              </div>
+
+              <p className="text-[11px] text-gray-400">
+                The .proj file will be stored on the server. Geometry and feedstock settings come from the project file — you&apos;ll set COT, flow, and SHC in the next step.
+              </p>
+            </div>
+          )}
 
           {useMode === 'saved' && (
             <div className="card space-y-3">
