@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import useSWR from 'swr'
 import type { ChannelConfig } from '@/lib/types'
 
@@ -33,10 +33,190 @@ const INPUT_OPTIONS = [
   { key: 'cop',  label: 'COP (atm)' },
 ]
 
-const KPI_OPTIONS = [
-  'C2H4', 'H2', 'CH4', 'C2H6', 'C3H6', 'C3H8',
-  '1.3-C4H6', 'Benzene', 'Toluene', 'Xylene', 'Styrene',
+const KPI_GROUPS = [
+  {
+    label: 'Light Gases',
+    keys: ['H2', 'CH4', 'C2H2', 'C2H4', 'C2H6'],
+  },
+  {
+    label: 'C3 Species',
+    keys: ['ProDiene', 'C3H6', 'C3H8', 'CycC3H6'],
+  },
+  {
+    label: 'C4 Species',
+    keys: ['1.3-C4H6', '1C4H8', '2C4H8', 'iC4H8', 'nC4H10', 'iC4H10', '13BD'],
+  },
+  {
+    label: 'C5 Species',
+    keys: ['C5H6', 'CycC5', 'CycPD', 'iC5H10', 'nC5H10', 'iC5H12', 'nC5H12', 'CyC5H8'],
+  },
+  {
+    label: 'C6+ & Aromatics',
+    keys: ['Benzene', 'Toluene', 'EthBenz', 'Xylene', 'Styrene', 'Naphthalene', 'IndDene', 'C9', 'C10Plus', 'CycC6', 'MeCyC5'],
+  },
+  {
+    label: 'Process Outputs',
+    keys: ['TMT_max', 'Coil_Heat', 'Pressure_Drop', 'Max_Conversion', 'Max_Coke_Thickness'],
+  },
 ]
+
+const KPI_LABELS: Record<string, string> = {
+  'H2':                  'H₂',
+  'CH4':                 'CH₄',
+  'C2H2':                'C₂H₂ (acetylene)',
+  'C2H4':                'C₂H₄ (ethylene)',
+  'C2H6':                'C₂H₆ (ethane)',
+  'ProDiene':            'Propadiene (C₃H₄)',
+  'C3H6':                'C₃H₆ (propylene)',
+  'C3H8':                'C₃H₈ (propane)',
+  'CycC3H6':             'Cyclopropane',
+  '1.3-C4H6':            '1,3-Butadiene',
+  '1C4H8':               '1-Butene',
+  '2C4H8':               '2-Butene',
+  'iC4H8':               'Isobutylene',
+  'nC4H10':              'n-Butane',
+  'iC4H10':              'Isobutane',
+  '13BD':                '1,3-Butadiene (alt)',
+  'C5H6':                'Cyclopentadiene',
+  'CycC5':               'Cyclopentane',
+  'CycPD':               'Cyclopentadiene',
+  'iC5H10':              'Isopentene',
+  'nC5H10':              'n-Pentene',
+  'iC5H12':              'Isopentane',
+  'nC5H12':              'n-Pentane',
+  'CyC5H8':              'Methylcyclobutane',
+  'Benzene':             'Benzene (C₆H₆)',
+  'Toluene':             'Toluene',
+  'EthBenz':             'Ethylbenzene',
+  'Xylene':              'Xylene',
+  'Styrene':             'Styrene',
+  'Naphthalene':         'Naphthalene',
+  'IndDene':             'Indene',
+  'C9':                  'C₉ aromatics',
+  'C10Plus':             'C₁₀+ heavies',
+  'CycC6':               'Cyclohexane',
+  'MeCyC5':              'Methylcyclopentane',
+  'TMT_max':             'Max TMT (°C)',
+  'Coil_Heat':           'Absorbed heat (kJ/hr)',
+  'Pressure_Drop':       'Pressure drop (atm)',
+  'Max_Conversion':      'Mass conversion (%)',
+  'Max_Coke_Thickness':  'Max coke thickness (mm)',
+}
+
+const DEFAULT_KPI_OUTPUTS = ['C2H4', 'H2', 'CH4', 'C3H6', 'Benzene', 'TMT_max', 'Coil_Heat']
+
+// ── KPI multi-select combobox ─────────────────────────────────────────────────
+
+function KpiMultiSelect({ selected, onChange }: { selected: string[]; onChange: (v: string[]) => void }) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const toggle = (k: string) =>
+    onChange(selected.includes(k) ? selected.filter(x => x !== k) : [...selected, k])
+
+  const visible = (keys: string[]) =>
+    search
+      ? keys.filter(k =>
+          k.toLowerCase().includes(search.toLowerCase()) ||
+          (KPI_LABELS[k] || '').toLowerCase().includes(search.toLowerCase())
+        )
+      : keys
+
+  return (
+    <div ref={ref} className="relative">
+      {/* Trigger chip-box */}
+      <div
+        onClick={() => setOpen(o => !o)}
+        className="min-h-[42px] w-full border border-gray-200 rounded-lg px-3 py-2 flex flex-wrap gap-1.5 cursor-pointer hover:border-gray-400 bg-white"
+      >
+        {selected.length === 0 && (
+          <span className="text-sm text-gray-400 self-center">Select KPI components…</span>
+        )}
+        {selected.map(k => (
+          <span
+            key={k}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 text-xs font-medium"
+          >
+            {KPI_LABELS[k] ?? k}
+            <button
+              onClick={e => { e.stopPropagation(); toggle(k) }}
+              className="hover:text-blue-600 leading-none"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        <span className="ml-auto self-center text-gray-400 text-xs pl-2">▾</span>
+      </div>
+
+      {/* Dropdown */}
+      {open && (
+        <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-xl max-h-72 overflow-y-auto">
+          <div className="p-2 border-b border-gray-100 sticky top-0 bg-white">
+            <input
+              autoFocus
+              className="w-full text-sm px-2 py-1.5 border border-gray-200 rounded-md outline-none focus:border-gray-400"
+              placeholder="Search components…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onClick={e => e.stopPropagation()}
+            />
+          </div>
+          {KPI_GROUPS.map(group => {
+            const shown = visible(group.keys)
+            if (!shown.length) return null
+            return (
+              <div key={group.label}>
+                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 bg-gray-50 border-b border-gray-100 sticky top-[41px]">
+                  {group.label}
+                </div>
+                {shown.map(k => (
+                  <label
+                    key={k}
+                    className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(k)}
+                      onChange={() => toggle(k)}
+                      className="rounded accent-blue-600"
+                    />
+                    <span className="flex-1 text-sm">{KPI_LABELS[k] ?? k}</span>
+                    {KPI_LABELS[k] && (
+                      <span className="text-[10px] text-gray-400 font-mono">{k}</span>
+                    )}
+                  </label>
+                ))}
+              </div>
+            )
+          })}
+          {KPI_GROUPS.every(g => !visible(g.keys).length) && (
+            <div className="px-3 py-4 text-sm text-gray-400 text-center">No components match</div>
+          )}
+          <div className="p-2 border-t border-gray-100 flex justify-between items-center sticky bottom-0 bg-white">
+            <span className="text-xs text-gray-400">{selected.length} selected</span>
+            <button
+              onClick={() => setOpen(false)}
+              className="text-xs text-gray-600 hover:text-gray-900 px-3 py-1 border border-gray-200 rounded-md"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface DesignCase { id: number; name: string; project_name: string }
 interface CaseParams {
@@ -53,7 +233,7 @@ function CaseParamsCard() {
   const [params, setParams] = useState<CaseParams>({
     severity_type: 'cot',
     active_inputs: ['cot', 'flow', 'shc'],
-    kpi_outputs: ['C2H4', 'H2', 'CH4'],
+    kpi_outputs: DEFAULT_KPI_OUTPUTS,
   })
   const [dirty, setDirty] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'ok' | 'err'>('idle')
@@ -67,7 +247,7 @@ function CaseParamsCard() {
     setParams({
       severity_type: loadedParams.severity_type ?? 'cot',
       active_inputs: loadedParams.active_inputs ?? ['cot', 'flow', 'shc'],
-      kpi_outputs:   loadedParams.kpi_outputs   ?? ['C2H4', 'H2', 'CH4'],
+      kpi_outputs:   loadedParams.kpi_outputs   ?? DEFAULT_KPI_OUTPUTS,
     })
     setDirty(false)
   }, [loadedParams])
@@ -78,16 +258,6 @@ function CaseParamsCard() {
       active_inputs: p.active_inputs.includes(key)
         ? p.active_inputs.filter(k => k !== key)
         : [...p.active_inputs, key],
-    }))
-    setDirty(true)
-  }
-
-  function toggleKpi(k: string) {
-    setParams(p => ({
-      ...p,
-      kpi_outputs: p.kpi_outputs.includes(k)
-        ? p.kpi_outputs.filter(x => x !== k)
-        : [...p.kpi_outputs, k],
     }))
     setDirty(true)
   }
@@ -183,26 +353,16 @@ function CaseParamsCard() {
 
           {/* KPI outputs */}
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-2">Output KPIs (highlighted in results and validation)</label>
-            <div className="flex flex-wrap gap-2">
-              {KPI_OPTIONS.map(k => {
-                const active = params.kpi_outputs.includes(k)
-                return (
-                  <button
-                    key={k}
-                    onClick={() => toggleKpi(k)}
-                    className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
-                      active
-                        ? 'bg-blue-600 border-blue-600 text-white'
-                        : 'border-gray-200 text-gray-500 hover:border-gray-400'
-                    }`}
-                  >
-                    {k}
-                  </button>
-                )
-              })}
-            </div>
-            <p className="text-[11px] text-gray-400 mt-1.5">Selected KPIs are shown prominently in yield output and validation tables.</p>
+            <label className="block text-xs font-medium text-gray-500 mb-2">
+              Output KPIs — highlighted in results and validation
+            </label>
+            <KpiMultiSelect
+              selected={params.kpi_outputs}
+              onChange={kpis => { setParams(p => ({ ...p, kpi_outputs: kpis })); setDirty(true) }}
+            />
+            <p className="text-[11px] text-gray-400 mt-1.5">
+              Covers all yields.csv components and general_info.csv process outputs. Selected KPIs are shown prominently in validation tables.
+            </p>
           </div>
 
           {/* Save */}
