@@ -373,7 +373,7 @@ function Nav({ step, total, onBack, onNext, nextLabel = 'Continue →', disabled
 function DesignCaseWizard() {
   const { data: savedCoils } = useSWR<CoilGeometry[]>('/api/coil-geometries', fetcher)
   const { data: savedFeeds } = useSWR<FeedstockDefinition[]>('/api/feedstock-definitions', fetcher)
-  const { data: uploadedProjects, mutate: mutateUploaded } = useSWR<{id:number;name:string;original_filename:string;file_size_bytes:number;created_at:string;deployed_at:string|null;deploy_error:string|null}[]>('/api/projects/uploaded', fetcher, { refreshInterval: useMode === 'upload' ? 5_000 : 0 })
+  const { data: uploadedProjects, mutate: mutateUploaded } = useSWR<{id:number;name:string;original_filename:string;file_size_bytes:number;created_at:string;deployed_at:string|null;deploy_error:string|null}[]>('/api/projects/uploaded', fetcher, { refreshInterval: 5_000 })
 
   const [step, setStep] = useState(0)
 
