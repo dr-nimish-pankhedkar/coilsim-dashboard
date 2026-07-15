@@ -373,7 +373,7 @@ function Nav({ step, total, onBack, onNext, nextLabel = 'Continue →', disabled
 function DesignCaseWizard() {
   const { data: savedCoils } = useSWR<CoilGeometry[]>('/api/coil-geometries', fetcher)
   const { data: savedFeeds } = useSWR<FeedstockDefinition[]>('/api/feedstock-definitions', fetcher)
-  const { data: uploadedProjects, mutate: mutateUploaded } = useSWR<{id:number;name:string;original_filename:string;file_size_bytes:number;created_at:string}[]>('/api/projects/uploaded', fetcher)
+  const { data: uploadedProjects, mutate: mutateUploaded } = useSWR<{id:number;name:string;original_filename:string;file_size_bytes:number;created_at:string;deployed_at:string|null;deploy_error:string|null}[]>('/api/projects/uploaded', fetcher, { refreshInterval: useMode === 'upload' ? 5_000 : 0 })
 
   const [step, setStep] = useState(0)
 
@@ -1030,9 +1030,16 @@ function DesignCaseWizard() {
                       <span className="text-lg">📄</span>
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium text-gray-800 truncate">{up.name}</div>
-                        <div className="text-[10px] text-gray-400">{up.original_filename} · {(up.file_size_bytes / 1024).toFixed(1)} KB · {new Date(up.created_at).toLocaleDateString()}</div>
+                        <div className="text-[10px] text-gray-400">{up.original_filename} · {(up.file_size_bytes / 1024).toFixed(1)} KB</div>
                       </div>
-                      {uploadedProjId === up.id && <span className="text-blue-500 text-xs font-semibold">Selected</span>}
+                      <div className="text-right flex-shrink-0">
+                        {up.deployed_at
+                          ? <span className="text-[10px] text-green-600 font-medium">✓ Deployed</span>
+                          : up.deploy_error
+                            ? <span className="text-[10px] text-red-500" title={up.deploy_error}>⚠ Deploy failed</span>
+                            : <span className="text-[10px] text-amber-500 animate-pulse">Pending deploy…</span>}
+                        {uploadedProjId === up.id && <div className="text-blue-500 text-xs font-semibold">Selected</div>}
+                      </div>
                     </div>
                   ))}
                 </div>

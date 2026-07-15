@@ -1,10 +1,227 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import useSWR from 'swr'
 import type { ChannelConfig } from '@/lib/types'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
+
+// ── Case Parameters Card ─────────────────────────────────────────────────────
+
+const SEVERITY_OPTIONS = [
+  { value: 'cot',          label: 'COT — Coil Outlet Temperature' },
+  { value: 'pe_ratio',     label: 'P/E ratio' },
+  { value: 'mp_ratio',     label: 'M/P ratio' },
+  { value: 'ethane_conv',  label: 'Ethane conversion' },
+  { value: 'propane_conv', label: 'Propane conversion' },
+  { value: 'nbutane_conv', label: 'n-Butane conversion' },
+  { value: 'npentane_conv',label: 'n-Pentane conversion' },
+  { value: 'nhexane_conv', label: 'n-Hexane conversion' },
+  { value: 'yield_max',    label: 'Yield maximum' },
+  { value: 'ethylene_yield', label: 'Ethylene yield' },
+  { value: 'methane_yield',  label: 'Methane yield' },
+  { value: 'conversion',   label: 'Conversion' },
+  { value: 'mixture_conv', label: 'Mixture conversion' },
+]
+
+const INPUT_OPTIONS = [
+  { key: 'cot',  label: 'COT (°C)' },
+  { key: 'flow', label: 'HC Flow (kg/h)' },
+  { key: 'shc',  label: 'SHC ratio' },
+  { key: 'cit',  label: 'CIT (°C)' },
+  { key: 'cip',  label: 'CIP (atm)' },
+  { key: 'cop',  label: 'COP (atm)' },
+]
+
+const KPI_OPTIONS = [
+  'C2H4', 'H2', 'CH4', 'C2H6', 'C3H6', 'C3H8',
+  '1.3-C4H6', 'Benzene', 'Toluene', 'Xylene', 'Styrene',
+]
+
+interface DesignCase { id: number; name: string; project_name: string }
+interface CaseParams {
+  severity_type: string
+  active_inputs: string[]
+  kpi_outputs: string[]
+}
+
+function CaseParamsCard() {
+  const { data: rawDcs } = useSWR<DesignCase[]>('/api/design-cases', fetcher, { refreshInterval: 30_000 })
+  const designCases = Array.isArray(rawDcs) ? rawDcs : []
+
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [params, setParams] = useState<CaseParams>({
+    severity_type: 'cot',
+    active_inputs: ['cot', 'flow', 'shc'],
+    kpi_outputs: ['C2H4', 'H2', 'CH4'],
+  })
+  const [dirty, setDirty] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'ok' | 'err'>('idle')
+
+  // Load params when design case changes
+  const paramsKey = selectedId ? `/api/design-cases/${selectedId}/params` : null
+  const { data: loadedParams } = useSWR<CaseParams>(paramsKey, fetcher)
+
+  useEffect(() => {
+    if (!loadedParams) return
+    setParams({
+      severity_type: loadedParams.severity_type ?? 'cot',
+      active_inputs: loadedParams.active_inputs ?? ['cot', 'flow', 'shc'],
+      kpi_outputs:   loadedParams.kpi_outputs   ?? ['C2H4', 'H2', 'CH4'],
+    })
+    setDirty(false)
+  }, [loadedParams])
+
+  function toggleInput(key: string) {
+    setParams(p => ({
+      ...p,
+      active_inputs: p.active_inputs.includes(key)
+        ? p.active_inputs.filter(k => k !== key)
+        : [...p.active_inputs, key],
+    }))
+    setDirty(true)
+  }
+
+  function toggleKpi(k: string) {
+    setParams(p => ({
+      ...p,
+      kpi_outputs: p.kpi_outputs.includes(k)
+        ? p.kpi_outputs.filter(x => x !== k)
+        : [...p.kpi_outputs, k],
+    }))
+    setDirty(true)
+  }
+
+  async function save() {
+    if (!selectedId) return
+    setSaveStatus('saving')
+    const res = await fetch(`/api/design-cases/${selectedId}/params`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    })
+    if (res.ok) {
+      setSaveStatus('ok'); setDirty(false)
+      setTimeout(() => setSaveStatus('idle'), 2500)
+    } else {
+      setSaveStatus('err')
+    }
+  }
+
+  return (
+    <div className="card space-y-5">
+      <div>
+        <p className="label">Case Parameters</p>
+        <p className="text-sm text-gray-400 mt-0.5">
+          Configure which severity input, operating parameters, and output KPIs apply to each design case.
+        </p>
+      </div>
+
+      {/* Design case selector */}
+      <div>
+        <label className="block text-xs font-medium text-gray-500 mb-1">Design case</label>
+        <select
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+          value={selectedId ?? ''}
+          onChange={e => { setSelectedId(e.target.value ? Number(e.target.value) : null); setDirty(false) }}
+        >
+          <option value="">— select a design case —</option>
+          {designCases.map(dc => (
+            <option key={dc.id} value={dc.id}>{dc.name || dc.project_name}</option>
+          ))}
+        </select>
+      </div>
+
+      {selectedId && (
+        <>
+          {/* Severity type */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Severity input (CoilSim shooting method target)</label>
+            <select
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+              value={params.severity_type}
+              onChange={e => { setParams(p => ({ ...p, severity_type: e.target.value })); setDirty(true) }}
+            >
+              {SEVERITY_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <p className="text-[11px] text-gray-400 mt-1">
+              {params.severity_type !== 'cot'
+                ? 'Note: COT input field will still appear for reference — the selected target drives the simulation severity.'
+                : 'CoilSim iterates COT until the target is matched.'}
+            </p>
+          </div>
+
+          {/* Active inputs */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-2">Active input parameters</label>
+            <div className="flex flex-wrap gap-2">
+              {INPUT_OPTIONS.map(({ key, label }) => {
+                const active = params.active_inputs.includes(key)
+                const required = key === 'cot' || key === 'flow'
+                return (
+                  <button
+                    key={key}
+                    disabled={required}
+                    onClick={() => toggleInput(key)}
+                    title={required ? 'Required — always active' : undefined}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+                      active
+                        ? 'bg-gray-900 border-gray-900 text-white'
+                        : 'border-gray-200 text-gray-500 hover:border-gray-400'
+                    } ${required ? 'opacity-60 cursor-default' : ''}`}
+                  >
+                    {label}
+                    {required && <span className="ml-1 text-[9px] opacity-60">required</span>}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1.5">Active inputs are shown in the Run wizard and Operating page for this case.</p>
+          </div>
+
+          {/* KPI outputs */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-2">Output KPIs (highlighted in results and validation)</label>
+            <div className="flex flex-wrap gap-2">
+              {KPI_OPTIONS.map(k => {
+                const active = params.kpi_outputs.includes(k)
+                return (
+                  <button
+                    key={k}
+                    onClick={() => toggleKpi(k)}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+                      active
+                        ? 'bg-blue-600 border-blue-600 text-white'
+                        : 'border-gray-200 text-gray-500 hover:border-gray-400'
+                    }`}
+                  >
+                    {k}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1.5">Selected KPIs are shown prominently in yield output and validation tables.</p>
+          </div>
+
+          {/* Save */}
+          <div className="flex items-center gap-3">
+            <button
+              disabled={!dirty || saveStatus === 'saving'}
+              onClick={save}
+              className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {saveStatus === 'saving' ? 'Saving…' : 'Save case params'}
+            </button>
+            {saveStatus === 'ok'  && <span className="text-sm text-emerald-600">✓ Saved</span>}
+            {saveStatus === 'err' && <span className="text-sm text-red-500">Save failed</span>}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
 
 // ── Channel Configuration card ────────────────────────────────────────────────
 
@@ -261,6 +478,9 @@ export default function ConfigurationPage() {
   return (
     <div className="space-y-6 max-w-2xl">
       <h1 className="text-xl font-semibold text-gray-900">Configuration</h1>
+
+      {/* Per-case input/output parameters */}
+      <CaseParamsCard />
 
       {/* Channel Configuration */}
       <ChannelConfigCard />
