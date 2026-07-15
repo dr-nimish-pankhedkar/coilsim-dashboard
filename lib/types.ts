@@ -23,10 +23,16 @@ export interface SimulationTask {
 export interface DesignCase {
   id: number
   name: string
-  coil_id: number
-  feed_id: number
+  coil_id: number | null
+  feed_id: number | null
   project_name: string
   created_at: string
+  uploaded_proj_id: number | null
+  verification_status: 'pending' | 'verified' | 'failed' | null
+  verified_at: string | null
+  verification_error: string | null
+  severity_type_parsed: string | null
+  severity_nominal: number | null
 }
 
 export interface CoilCokeProfile {

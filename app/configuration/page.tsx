@@ -225,11 +225,7 @@ interface CaseParams {
   kpi_outputs: string[]
 }
 
-function CaseParamsCard() {
-  const { data: rawDcs } = useSWR<DesignCase[]>('/api/design-cases', fetcher, { refreshInterval: 30_000 })
-  const designCases = Array.isArray(rawDcs) ? rawDcs : []
-
-  const [selectedId, setSelectedId] = useState<number | null>(null)
+function CaseParamsCard({ selectedId }: { selectedId: number }) {
   const [params, setParams] = useState<CaseParams>({
     severity_type: 'cot',
     active_inputs: ['cot', 'flow', 'shc'],
@@ -280,31 +276,7 @@ function CaseParamsCard() {
 
   return (
     <div className="card space-y-5">
-      <div>
-        <p className="label">Case Parameters</p>
-        <p className="text-sm text-gray-400 mt-0.5">
-          Configure which severity input, operating parameters, and output KPIs apply to each design case.
-        </p>
-      </div>
-
-      {/* Design case selector */}
-      <div>
-        <label className="block text-xs font-medium text-gray-500 mb-1">Design case</label>
-        <select
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-          value={selectedId ?? ''}
-          onChange={e => { setSelectedId(e.target.value ? Number(e.target.value) : null); setDirty(false) }}
-        >
-          <option value="">— select a design case —</option>
-          {designCases.map(dc => (
-            <option key={dc.id} value={dc.id}>{dc.name || dc.project_name}</option>
-          ))}
-        </select>
-      </div>
-
-      {selectedId && (
-        <>
-          {/* Severity type */}
+      {/* Severity type */}
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Severity input (CoilSim shooting method target)</label>
             <select
@@ -377,6 +349,237 @@ function CaseParamsCard() {
             {saveStatus === 'ok'  && <span className="text-sm text-emerald-600">✓ Saved</span>}
             {saveStatus === 'err' && <span className="text-sm text-red-500">Save failed</span>}
           </div>
+    </div>
+  )
+}
+
+// ── Severity Source card ──────────────────────────────────────────────────────
+
+const SEV_LABELS: Record<string, string> = {
+  cot: 'COT (°C)', pe_ratio: 'P/E ratio', mp_ratio: 'M/P ratio',
+  ethane_conversion: 'Ethane conversion', propane_conversion: 'Propane conversion',
+  nbutane_conversion: 'n-Butane conversion', npentane_conversion: 'n-Pentane conversion',
+  nhexane_conversion: 'n-Hexane conversion', yield_maximization: 'Yield maximization',
+  ethylene_yield: 'Ethylene yield', methane_yield: 'Methane yield',
+  conversion: 'Conversion', mixture_conversion: 'Mixture conversion',
+}
+
+interface VerifData {
+  verification_status: 'pending' | 'verified' | 'failed' | null
+  severity_type: string | null
+  severity_nominal: number | null
+  case_params: Record<string, unknown>
+}
+
+function SeveritySourceCard({ selectedId }: { selectedId: number | null }) {
+  const { data: verif, mutate } = useSWR<VerifData>(
+    selectedId ? `/api/design-cases/${selectedId}/verification` : null,
+    fetcher,
+    { refreshInterval: 30_000 }
+  )
+
+  const [source, setSource]   = useState<'dcs_tag' | 'calculated' | 'fixed'>('fixed')
+  const [tag, setTag]         = useState('')
+  const [cotTag, setCotTag]   = useState('')
+  const [baseCot, setBaseCot] = useState('840')
+  const [sens, setSens]       = useState('0.30')
+  const [tagLive, setTagLive] = useState<number | null>(null)
+  const [tagStatus, setTagStatus] = useState<'idle' | 'ok' | 'miss'>('idle')
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'ok' | 'err'>('idle')
+
+  // Populate from case_params when data loads
+  useEffect(() => {
+    if (!verif?.case_params) return
+    const cp = verif.case_params as Record<string, unknown>
+    if (cp.severity_source) setSource(cp.severity_source as 'dcs_tag' | 'calculated' | 'fixed')
+    if (cp.severity_tag)    setTag(String(cp.severity_tag))
+    if (cp.cot_tag)         setCotTag(String(cp.cot_tag))
+    if (cp.base_cot)        setBaseCot(String(cp.base_cot))
+    if (cp.cot_to_conv_sensitivity) setSens(String(cp.cot_to_conv_sensitivity))
+  }, [verif])
+
+  async function checkTag() {
+    const res = await fetch(`/api/dcs/check-tag?tag=${encodeURIComponent(tag)}`)
+    const j = await res.json()
+    if (j.found) { setTagLive(j.latest_value); setTagStatus('ok') }
+    else         { setTagLive(null);            setTagStatus('miss') }
+  }
+
+  async function save() {
+    if (!selectedId) return
+    setSaveStatus('saving')
+    const body: Record<string, unknown> = { severity_source: source }
+    if (source === 'dcs_tag')    body.severity_tag = tag
+    if (source === 'calculated') {
+      body.cot_tag = cotTag; body.base_cot = Number(baseCot)
+      body.cot_to_conv_sensitivity = Number(sens)
+    }
+    const res = await fetch(`/api/design-cases/${selectedId}/severity-config`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (res.ok) { setSaveStatus('ok'); mutate(); setTimeout(() => setSaveStatus('idle'), 2500) }
+    else        { setSaveStatus('err') }
+  }
+
+  if (!selectedId) return null
+
+  const sevLabel  = verif?.severity_type ? (SEV_LABELS[verif.severity_type] ?? verif.severity_type) : null
+  const isCot     = !verif?.severity_type || verif.severity_type === 'cot'
+
+  const inp = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white'
+  const radioBase = 'flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors'
+  const radioActive = 'border-gray-900 bg-gray-50'
+  const radioInactive = 'border-gray-200 hover:border-gray-300'
+
+  return (
+    <div className="card space-y-5">
+      <div>
+        <p className="label">Severity Configuration</p>
+        <p className="text-sm text-gray-400 mt-0.5">
+          Configure how the severity input is sourced for live hourly runs.
+        </p>
+      </div>
+
+      {/* Detected severity type */}
+      {sevLabel && (
+        <div className="rounded-lg bg-blue-50 border border-blue-100 px-4 py-3 space-y-0.5">
+          <p className="text-xs font-medium text-blue-700">
+            Severity type from .proj: <span className="font-semibold">{sevLabel}</span>
+          </p>
+          {verif?.severity_nominal != null && (
+            <p className="text-xs text-blue-600">
+              Nominal value: <span className="font-semibold">{Number(verif.severity_nominal).toFixed(3)}</span>
+              {isCot ? ' °C' : ''}
+            </p>
+          )}
+        </div>
+      )}
+
+      <p className="text-xs font-medium text-gray-500">How to source severity for live runs:</p>
+
+      {/* DCS tag */}
+      <label className={`${radioBase} ${source === 'dcs_tag' ? radioActive : radioInactive}`}>
+        <input type="radio" name="sev_source" value="dcs_tag" checked={source === 'dcs_tag'}
+          onChange={() => setSource('dcs_tag')} className="mt-0.5" />
+        <div className="flex-1 space-y-2">
+          <p className="text-sm font-medium text-gray-900">From DCS tag</p>
+          {source === 'dcs_tag' && (
+            <div className="space-y-1.5">
+              <div className="flex gap-2">
+                <input className={inp} placeholder="e.g. UTD1_Ethane_Conversion_pct"
+                  value={tag} onChange={e => { setTag(e.target.value); setTagStatus('idle') }} />
+                <button onClick={checkTag}
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-xs font-medium hover:border-gray-400 whitespace-nowrap">
+                  Check
+                </button>
+              </div>
+              {tagStatus === 'ok'  && (
+                <p className="text-xs text-emerald-600">
+                  ✓ Found · current value: <span className="font-semibold">{tagLive?.toFixed(4)}</span>
+                </p>
+              )}
+              {tagStatus === 'miss' && (
+                <p className="text-xs text-amber-600">
+                  ⚠ Tag not found in historian — falls back to nominal on live runs
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </label>
+
+      {/* Calculate from COT */}
+      <label className={`${radioBase} ${source === 'calculated' ? radioActive : radioInactive}`}>
+        <input type="radio" name="sev_source" value="calculated" checked={source === 'calculated'}
+          onChange={() => setSource('calculated')} className="mt-0.5" />
+        <div className="flex-1 space-y-2">
+          <p className="text-sm font-medium text-gray-900">Calculate from COT tag</p>
+          {source === 'calculated' && (
+            <div className="space-y-2">
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">COT DCS tag</label>
+                <input className={inp} placeholder="e.g. UTD1_COT_degC"
+                  value={cotTag} onChange={e => setCotTag(e.target.value)} />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Base COT (°C)</label>
+                  <input className={inp} type="number" value={baseCot}
+                    onChange={e => setBaseCot(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Sensitivity (unit/°C)</label>
+                  <input className={inp} type="number" step="0.01" value={sens}
+                    onChange={e => setSens(e.target.value)} />
+                </div>
+              </div>
+              <p className="text-[11px] text-gray-400">
+                severity = nominal + (COT − base_COT) × sensitivity
+              </p>
+            </div>
+          )}
+        </div>
+      </label>
+
+      {/* Fixed nominal */}
+      <label className={`${radioBase} ${source === 'fixed' ? radioActive : radioInactive}`}>
+        <input type="radio" name="sev_source" value="fixed" checked={source === 'fixed'}
+          onChange={() => setSource('fixed')} className="mt-0.5" />
+        <div className="flex-1">
+          <p className="text-sm font-medium text-gray-900">Use fixed nominal value</p>
+          <p className="text-xs text-amber-600 mt-0.5">⚠ Not recommended for live runs — severity will not track plant conditions.</p>
+        </div>
+      </label>
+
+      <div className="flex items-center gap-3">
+        <button onClick={save} disabled={saveStatus === 'saving'}
+          className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed">
+          {saveStatus === 'saving' ? 'Saving…' : 'Save Severity Configuration'}
+        </button>
+        {saveStatus === 'ok'  && <span className="text-sm text-emerald-600">✓ Saved</span>}
+        {saveStatus === 'err' && <span className="text-sm text-red-500">Save failed</span>}
+      </div>
+    </div>
+  )
+}
+
+// ── Combined case config section (shared selector → CaseParamsCard + SeveritySourceCard) ─
+
+function CaseConfigSection() {
+  const { data: rawDcs } = useSWR<DesignCase[]>('/api/design-cases', fetcher, { refreshInterval: 30_000 })
+  const designCases = Array.isArray(rawDcs) ? rawDcs : []
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+
+  return (
+    <div className="space-y-4">
+      {/* Shared design case selector */}
+      <div className="card space-y-3">
+        <div>
+          <p className="label">Case Parameters</p>
+          <p className="text-sm text-gray-400 mt-0.5">
+            Configure severity input, operating parameters, and output KPIs per design case.
+          </p>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Design case</label>
+          <select
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+            value={selectedId ?? ''}
+            onChange={e => setSelectedId(e.target.value ? Number(e.target.value) : null)}
+          >
+            <option value="">— select a design case —</option>
+            {designCases.map(dc => (
+              <option key={dc.id} value={dc.id}>{dc.name || dc.project_name}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {selectedId && (
+        <>
+          <CaseParamsCard selectedId={selectedId} />
+          <SeveritySourceCard selectedId={selectedId} />
         </>
       )}
     </div>
@@ -639,8 +842,8 @@ export default function ConfigurationPage() {
     <div className="space-y-6 max-w-2xl">
       <h1 className="text-xl font-semibold text-gray-900">Configuration</h1>
 
-      {/* Per-case input/output parameters */}
-      <CaseParamsCard />
+      {/* Per-case input/output parameters + severity config share a selector */}
+      <CaseConfigSection />
 
       {/* Channel Configuration */}
       <ChannelConfigCard />

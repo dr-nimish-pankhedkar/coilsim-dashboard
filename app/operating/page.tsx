@@ -57,6 +57,79 @@ function DcsValueBox({ label, unit, value }: { label: string; unit: string; valu
   )
 }
 
+// ── Verification badge ───────────────────────────────────────────────────────
+
+type VerifStatus = 'pending' | 'verified' | 'failed'
+
+interface VerifData {
+  verification_status: VerifStatus
+  verified_at: string | null
+  verification_error: string | null
+  severity_type: string | null
+  severity_nominal: number | null
+}
+
+function VerificationBadge({ dc }: { dc: DesignCase }) {
+  const isPending = !dc.verification_status || dc.verification_status === 'pending'
+  const { data, mutate } = useSWR<VerifData>(
+    `/api/design-cases/${dc.id}/verification`,
+    fetcher,
+    { refreshInterval: isPending ? 15_000 : 0 }
+  )
+  const [retrying, setRetrying] = useState(false)
+  const [errorOpen, setErrorOpen] = useState(false)
+
+  const status: VerifStatus = data?.verification_status ?? dc.verification_status ?? 'pending'
+
+  async function retry() {
+    setRetrying(true)
+    await fetch(`/api/design-cases/${dc.id}/verification`, { method: 'POST' })
+    await mutate()
+    setRetrying(false)
+  }
+
+  const cfg = {
+    pending:  { dot: 'bg-amber-400 animate-pulse', text: 'text-amber-700', bg: 'bg-amber-50 border-amber-200', label: 'Verification pending…' },
+    verified: { dot: 'bg-emerald-400',             text: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200', label: 'Verified & Ready' },
+    failed:   { dot: 'bg-red-400',                 text: 'text-red-700',   bg: 'bg-red-50 border-red-200',   label: 'Verification failed' },
+  }[status]
+
+  return (
+    <div className={`mt-2 rounded-lg border px-3 py-2 text-xs ${cfg.bg}`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className={`flex items-center gap-1.5 font-medium ${cfg.text}`}>
+          <span className={`w-2 h-2 rounded-full inline-block ${cfg.dot}`} />
+          {cfg.label}
+          {status === 'verified' && data?.severity_type && (
+            <span className="font-normal opacity-70 ml-1">
+              · {data.severity_type.replace(/_/g, ' ')} = {data.severity_nominal?.toFixed(3)}
+            </span>
+          )}
+        </span>
+        {status === 'failed' && (
+          <div className="flex items-center gap-2">
+            <button onClick={() => setErrorOpen(o => !o)} className="underline text-red-600">
+              {errorOpen ? 'Hide error' : 'Show error'}
+            </button>
+            <button
+              onClick={retry}
+              disabled={retrying}
+              className="px-2 py-0.5 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {retrying ? 'Retrying…' : 'Retry'}
+            </button>
+          </div>
+        )}
+      </div>
+      {status === 'failed' && errorOpen && data?.verification_error && (
+        <p className="mt-1.5 text-red-600 font-mono text-[10px] break-all">
+          {data.verification_error}
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── Hourly Run panel ──────────────────────────────────────────────────────────
 function HourlyRunPanel() {
   const [selectedDcId, setSelectedDcId] = useState<number | null>(null)
@@ -174,11 +247,7 @@ function HourlyRunPanel() {
             ))}
           </select>
         )}
-        {selectedDc && (
-          <p className="text-xs text-gray-400 mt-1">
-            Model: <span className="font-medium text-gray-600">{selectedDc.name}</span>
-          </p>
-        )}
+        {selectedDc && <VerificationBadge dc={selectedDc} />}
       </div>
 
       {/* DCS live values grid */}
