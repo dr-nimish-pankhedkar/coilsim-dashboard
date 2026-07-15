@@ -944,16 +944,16 @@ function DesignCaseWizard() {
   }
 
   function next() {
-    // Upload mode: skip geometry/feedstock steps
-    if (useMode === 'upload' && step === 0) { setStep(4); return }
+    // Upload mode: skip all intermediate steps — .proj has everything baked in
+    if (useMode === 'upload' && step === 0) { setStep(6); return }
     if (step < STEPS.length - 1) setStep(s => s + 1)
   }
   function back() {
     // Reset submit state so the review page shows the Submit button again
     setSubmitState('idle')
     setSubmitMsg('')
-    // Upload mode: skip back over geometry/feedstock steps
-    if (useMode === 'upload' && step === 4) { setStep(0); return }
+    // Upload mode: skip back to Project from Review
+    if (useMode === 'upload' && step === 6) { setStep(0); return }
     if (step === 2 && geomSelection === 'standard' && importGeomSubStep === 'legs') {
       // Back within standard sub-step: go to coil_list, don't decrement step
       setImportGeomSubStep('coil_list')
