@@ -2245,9 +2245,24 @@ function DesignCaseWizard() {
         <div className="space-y-6">
           <div>
             <h2 className="text-base font-semibold text-gray-900">Review & Submit</h2>
-            <p className="text-sm text-gray-400 mt-1">Confirm all inputs before queuing the simulation.</p>
+            <p className="text-sm text-gray-400 mt-1">
+              {useMode === 'upload'
+                ? 'Confirm the project name and submit — all inputs come from the .proj file.'
+                : 'Confirm all inputs before queuing the simulation.'}
+            </p>
           </div>
 
+          {useMode === 'upload' ? (
+            <div className="space-y-4">
+              <div className="card space-y-2">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Project</p>
+                <p className="text-sm font-medium text-gray-900">{projName || '—'}</p>
+              </div>
+              <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+                All coil geometry, feedstock, and operating conditions are read directly from the uploaded <strong>.proj</strong> file. The worker will extract them on first run.
+              </div>
+            </div>
+          ) : (
           <div className="grid grid-cols-2 gap-4">
             {/* Project */}
             <div className="card space-y-2">
@@ -2339,6 +2354,7 @@ function DesignCaseWizard() {
               </div>
             </div>
           </div>
+          )}
 
           {(submitState === 'idle' || submitState === 'err') && (
             <div className="space-y-3">
@@ -2348,7 +2364,11 @@ function DesignCaseWizard() {
                 </div>
               )}
               <button onClick={submit} className="btn-primary w-full text-base py-3">
-                {submitState === 'err' ? '↺  Retry Submission' : '🚀  Submit Design Case Simulation'}
+                {submitState === 'err'
+                  ? '↺  Retry Submission'
+                  : useMode === 'upload'
+                  ? '📂  Deploy .proj & Run Verification'
+                  : '🚀  Submit Design Case Simulation'}
               </button>
             </div>
           )}
