@@ -728,12 +728,12 @@ function DesignCaseWizard() {
   const [submitMsg,   setSubmitMsg]   = useState('')
 
   async function handleProjFileUpload(file: File) {
-    if (!file.name.endsWith('.proj')) { setUploadError('Only .proj files accepted'); return }
+    if (!file.name.endsWith('.zip')) { setUploadError('Only .zip files accepted'); return }
     setUploadUploading(true); setUploadError(null)
     try {
       const fd = new FormData()
       fd.append('file', file)
-      fd.append('name', uploadedProjName.trim() || file.name.replace('.proj', ''))
+      fd.append('name', uploadedProjName.trim() || file.name.replace('.zip', ''))
       const res = await fetch('/api/projects/upload', { method: 'POST', body: fd })
       const data = await res.json()
       if (!res.ok) { setUploadError(data.error ?? 'Upload failed'); return }
@@ -1000,7 +1000,7 @@ function DesignCaseWizard() {
               {([
                 { m: 'new',    icon: '✏️', label: 'Define new',     desc: 'Enter geometry and feedstock from scratch' },
                 { m: 'saved',  icon: '📁', label: 'Use saved',      desc: 'Pick from previously saved configurations' },
-                { m: 'upload', icon: '☁️', label: 'Upload .proj',   desc: 'Use a client-supplied CoilSim project file' },
+                { m: 'upload', icon: '☁️', label: 'Upload ZIP',     desc: 'Upload a zipped CoilSim project folder' },
               ] as const).map(({ m, icon, label, desc }) => (
                 <button key={m} onClick={() => setUseMode(m)}
                   className={`rounded-xl border p-4 text-left transition-all ${
@@ -1015,7 +1015,7 @@ function DesignCaseWizard() {
 
           {useMode === 'upload' && (
             <div className="card space-y-4">
-              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Upload .proj file</p>
+              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Upload project folder as ZIP</p>
 
               {/* Previously uploaded projects */}
               {(uploadedProjects ?? []).length > 0 && (
@@ -1047,21 +1047,21 @@ function DesignCaseWizard() {
 
               {/* Drag-drop upload */}
               <div>
-                <div className="text-xs text-gray-500 mb-2">{(uploadedProjects ?? []).length > 0 ? 'Or upload a new file:' : 'Drag & drop a .proj file or click to browse:'}</div>
+                <div className="text-xs text-gray-500 mb-2">{(uploadedProjects ?? []).length > 0 ? 'Or upload a new ZIP:' : 'Drag & drop a .zip file or click to browse:'}</div>
                 <div
                   onDragOver={e => { e.preventDefault(); setUploadDragging(true) }}
                   onDragLeave={() => setUploadDragging(false)}
                   onDrop={e => { e.preventDefault(); setUploadDragging(false); const f = e.dataTransfer.files[0]; if (f) handleProjFileUpload(f) }}
                   className={`relative border-2 border-dashed rounded-xl p-6 text-center transition-colors ${uploadDragging ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-gray-400'}`}
                 >
-                  <input type="file" accept=".proj" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  <input type="file" accept=".zip" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                     onChange={e => { const f = e.target.files?.[0]; if (f) handleProjFileUpload(f) }} />
                   {uploadUploading ? (
                     <p className="text-sm text-blue-500">Uploading…</p>
                   ) : (
                     <>
                       <p className="text-2xl mb-1">☁️</p>
-                      <p className="text-sm text-gray-500">Drop .proj file here or click to browse</p>
+                      <p className="text-sm text-gray-500">Drop .zip file here or click to browse</p>
                       <p className="text-[10px] text-gray-400 mt-1">Max 50 MB</p>
                     </>
                   )}
@@ -1073,7 +1073,7 @@ function DesignCaseWizard() {
               </div>
 
               <p className="text-[11px] text-gray-400">
-                The .proj file will be stored on the server. Geometry and feedstock settings come from the project file — you&apos;ll set COT, flow, and SHC in the next step.
+                Open your .proj in the CoilSim GUI first, then zip the entire project folder and upload here. All coil geometry, feedstock, and operating conditions are read from the extracted files.
               </p>
             </div>
           )}
@@ -2247,7 +2247,7 @@ function DesignCaseWizard() {
             <h2 className="text-base font-semibold text-gray-900">Review & Submit</h2>
             <p className="text-sm text-gray-400 mt-1">
               {useMode === 'upload'
-                ? 'Confirm the project name and submit — all inputs come from the .proj file.'
+                ? 'Confirm the project name and submit — all inputs come from the uploaded ZIP.'
                 : 'Confirm all inputs before queuing the simulation.'}
             </p>
           </div>
@@ -2259,7 +2259,7 @@ function DesignCaseWizard() {
                 <p className="text-sm font-medium text-gray-900">{projName || '—'}</p>
               </div>
               <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
-                All coil geometry, feedstock, and operating conditions are read directly from the uploaded <strong>.proj</strong> file. The worker will extract them on first run.
+                All coil geometry, feedstock, and operating conditions are read from the uploaded ZIP. Files are extracted directly to the CoilSim Projects folder.
               </div>
             </div>
           ) : (
@@ -2367,7 +2367,7 @@ function DesignCaseWizard() {
                 {submitState === 'err'
                   ? '↺  Retry Submission'
                   : useMode === 'upload'
-                  ? '📂  Deploy .proj & Run Verification'
+                  ? '📂  Deploy ZIP & Run Verification'
                   : '🚀  Submit Design Case Simulation'}
               </button>
             </div>

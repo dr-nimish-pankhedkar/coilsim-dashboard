@@ -13,8 +13,8 @@ export async function POST(req: NextRequest) {
 
     if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })
-    if (!file.name.endsWith('.proj')) {
-      return NextResponse.json({ error: 'Only .proj files are accepted' }, { status: 400 })
+    if (!file.name.endsWith('.zip')) {
+      return NextResponse.json({ error: 'Only .zip files are accepted' }, { status: 400 })
     }
     if (file.size > MAX_BYTES) {
       return NextResponse.json({ error: `File too large (max 50 MB, got ${(file.size / 1024 / 1024).toFixed(1)} MB)` }, { status: 400 })
