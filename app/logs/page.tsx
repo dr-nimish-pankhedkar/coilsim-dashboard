@@ -99,7 +99,7 @@ function TaskSummaryTab() {
                     ? Number(t.dc_severity_nominal).toFixed(2)
                     : t.cot_input?.toFixed(1) ?? '—'}
                 </td>
-                <td className="py-2.5 pr-5 tabular-nums">{t.flow_input?.toFixed(0) ?? '—'}</td>
+                <td className="py-2.5 pr-5 tabular-nums">{t.dc_source === 'uploaded_proj' ? '—' : (t.flow_input?.toFixed(0) ?? '—')}</td>
                 <td className="py-2.5">
                   {(t.status === 'Error' || t.status === 'Failed') && (
                     <button
