@@ -1716,7 +1716,7 @@ export default function ValidationPage() {
                     <div className="flex gap-2">
                       <button
                         onClick={handlePromote}
-                        disabled={busyPromote || phase === 'promoted'}
+                        disabled={busyPromote || !!promoted}
                         className="flex-1 py-2 rounded-lg bg-blue-700 text-white text-xs font-semibold hover:bg-blue-800 disabled:opacity-50 transition-colors"
                       >
                         {busyPromote ? 'Applying…' : 'Apply Recommended Parameters'}
