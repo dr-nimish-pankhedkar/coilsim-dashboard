@@ -196,12 +196,41 @@ function ValidationFlowchart() {
   )
 }
 
+type ValidationTab = 'design' | 'operating'
+
+interface TuningParamCfg {
+  enabled: boolean
+  min: number
+  max: number
+  step: number
+  unit: string
+  result?: number | null
+}
+type TuningParams = Record<string, TuningParamCfg>
+
+const TUNING_DEFAULTS: TuningParams = {
+  cot_bias:    { enabled: true,  min: -5,    max: 30,   step: 0.5,  unit: '°C'    },
+  cip_bias:    { enabled: false, min: -0.3,  max: 0.3,  step: 0.05, unit: 'atm'   },
+  flux_mult:   { enabled: false, min: 0.85,  max: 1.15, step: 0.05, unit: '—'     },
+  adiabatic_l: { enabled: false, min: 0.0,   max: 2.0,  step: 0.25, unit: 'm'     },
+  shc_bias:    { enabled: false, min: -0.05, max: 0.05, step: 0.01, unit: 'kg/kg' },
+}
+
+const TUNING_META: Record<string, { label: string; desc: string }> = {
+  cot_bias:    { label: 'COT Bias',          desc: 'Temperature offset applied to DCS coil outlet temperature' },
+  cip_bias:    { label: 'CIP Bias',          desc: 'Inlet pressure offset' },
+  flux_mult:   { label: 'Flux Multiplier',   desc: 'Scale factor applied to entire heat flux profile' },
+  adiabatic_l: { label: 'Adiabatic Length',  desc: 'Additional reaction length after heated zone' },
+  shc_bias:    { label: 'SHC Bias',          desc: 'Offset to steam/HC ratio' },
+}
+
 interface SetupForm {
   design_case_id: string
   start_date: string
   end_date: string
   mb_filter_pct: '1' | '2'
   sample_interval_hrs: '1' | '4' | '8' | '12'
+  recalibration_threshold: string
 }
 
 interface StartResult {
@@ -919,17 +948,106 @@ function PlantDataConfig({
   )
 }
 
+// ── Tuning Parameters card ───────────────────────────────────────────────────
+function TuningParamsCard({
+  params, onChange, disabled, results,
+}: {
+  params: TuningParams
+  onChange: (p: TuningParams) => void
+  disabled?: boolean
+  results?: Record<string, { result: number | null; sensitivity_used?: number }>
+}) {
+  const keys = Object.keys(TUNING_DEFAULTS)
+
+  function updateField(key: string, field: keyof TuningParamCfg, value: unknown) {
+    onChange({ ...params, [key]: { ...params[key], [field]: value } })
+  }
+
+  return (
+    <div className="card space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-gray-700 uppercase tracking-wider">Tuning Parameters</p>
+        <button
+          type="button"
+          onClick={() => onChange(TUNING_DEFAULTS)}
+          disabled={disabled}
+          className="text-[10px] text-indigo-600 underline underline-offset-2 disabled:opacity-40"
+        >
+          Reset to defaults
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        {keys.map(key => {
+          const cfg = params[key] ?? TUNING_DEFAULTS[key]
+          const meta = TUNING_META[key]
+          const res = results?.[key]
+          return (
+            <div key={key} className="rounded-lg border border-gray-100 px-3 py-2.5">
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={cfg.enabled}
+                  disabled={disabled}
+                  onChange={e => updateField(key, 'enabled', e.target.checked)}
+                  className="mt-0.5 h-3.5 w-3.5 accent-gray-900 cursor-pointer"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-gray-800">{meta.label}</span>
+                    <span className="text-[10px] text-gray-400">{meta.desc}</span>
+                    {res?.result != null && (
+                      <span className="ml-auto text-xs font-semibold text-blue-700 tabular-nums">
+                        → {res.result >= 0 ? '+' : ''}{res.result} {cfg.unit}
+                      </span>
+                    )}
+                  </div>
+                  {cfg.enabled && (
+                    <div className="flex gap-3 mt-2 items-center">
+                      {(['min','max','step'] as const).map(field => (
+                        <label key={field} className="flex items-center gap-1 text-[10px] text-gray-500">
+                          {field.charAt(0).toUpperCase() + field.slice(1)}:
+                          <input
+                            type="number"
+                            value={cfg[field] as number}
+                            step={field === 'step' ? 'any' : undefined}
+                            disabled={disabled}
+                            onChange={e => updateField(key, field, parseFloat(e.target.value))}
+                            className="w-16 border border-gray-200 rounded px-1.5 py-0.5 text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-gray-900"
+                          />
+                          <span className="text-gray-400">{cfg.unit}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function ValidationPage() {
   const today = new Date().toISOString().slice(0, 10)
-  const d90 = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10)
+  const d90   = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10)
+  const d30   = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)
+
+  const [activeTab, setActiveTab] = useState<ValidationTab>('design')
+  const [tuningParams, setTuningParams] = useState<TuningParams>(TUNING_DEFAULTS)
+  const [tuningResults, setTuningResults] = useState<Record<string, { result: number | null; sensitivity_used?: number }>>({})
+  const [driftData, setDriftData] = useState<any>(null)
 
   const [form, setForm] = useState<SetupForm>({
-    design_case_id:      '',
-    start_date:          d90,
-    end_date:            today,
-    mb_filter_pct:       '2',
-    sample_interval_hrs: '1',
+    design_case_id:          '',
+    start_date:              d90,
+    end_date:                today,
+    mb_filter_pct:           '2',
+    sample_interval_hrs:     '1',
+    recalibration_threshold: '2.0',
   })
   const [phase,       setPhase]       = useState<Phase>('setup')
   const [activeDcId,  setActiveDcId]  = useState<number | null>(null)
@@ -995,6 +1113,8 @@ export default function ValidationPage() {
           end_date:            form.end_date,
           mb_filter_pct:       Number(form.mb_filter_pct),
           sample_interval_hrs: Number(form.sample_interval_hrs),
+          validation_mode:     activeTab,
+          tuning_params:       tuningParams,
         }),
       })
       const json = await res.json()
@@ -1023,6 +1143,14 @@ export default function ValidationPage() {
       const json = await res.json()
       if (!res.ok) { setErrMsg(json.error ?? 'Bias compute failed'); return }
       setBiasReport(json)
+      if (json.tuning_results) setTuningResults(json.tuning_results)
+      // Fetch drift data for operating tab
+      if (activeTab === 'operating' && activeDcId) {
+        const drift = await fetch(
+          `/api/validation/drift?design_case_id=${activeDcId}&threshold=${form.recalibration_threshold}`
+        ).then(r => r.json()).catch(() => null)
+        setDriftData(drift)
+      }
     } finally {
       setBusyBias(false)
     }
@@ -1053,6 +1181,8 @@ export default function ValidationPage() {
     setPollData(null)
     setPlantConfigSaved(false)
     setPlantHasFound(false)
+    setTuningResults({})
+    setDriftData(null)
   }
 
   const f = (k: keyof SetupForm, v: string) => setForm(prev => ({ ...prev, [k]: v }))
@@ -1084,8 +1214,43 @@ export default function ValidationPage() {
         </button>
       </div>
 
+      {/* Tab switcher */}
+      {phase === 'setup' && (
+        <div className="flex border-b border-gray-200">
+          {([
+            { key: 'design'    as const, label: 'Design Data Validation',    desc: 'Historical batch · calibrates the model' },
+            { key: 'operating' as const, label: 'Operating Data Validation',  desc: 'Recent data · monitors for drift' },
+          ] as const).map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => {
+                setActiveTab(tab.key)
+                setForm(f => ({
+                  ...f,
+                  start_date: tab.key === 'operating' ? d30 : d90,
+                  end_date:   today,
+                }))
+              }}
+              className={`px-5 py-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                activeTab === tab.key
+                  ? 'border-gray-900 text-gray-900'
+                  : 'border-transparent text-gray-400 hover:text-gray-600'
+              }`}
+            >
+              {tab.label}
+              <span className="block text-[10px] font-normal opacity-60">{tab.desc}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ── Section 1: Setup ──────────────────────────────────────────────────── */}
-      <Section title="1 — Setup" sub="Select a design case and define the validation date range and bias parameters.">
+      <Section
+        title="1 — Setup"
+        sub={activeTab === 'design'
+          ? 'Calibrate the model against historical plant data. Finds the parameter offsets that best match plant C₂H₄ production over the selected period.'
+          : 'Monitor model accuracy against recent plant data. Detects drift and triggers re-calibration when error exceeds threshold.'}
+      >
         <div className="grid grid-cols-2 gap-x-8 gap-y-4">
 
           <div className="col-span-2">
@@ -1097,7 +1262,10 @@ export default function ValidationPage() {
               disabled={phase === 'running'}
             >
               <option value="">— select a design case —</option>
-              {designCases.map(dc => (
+              {(activeTab === 'operating'
+                ? designCases.filter(dc => dc.verification_status === 'verified')
+                : designCases
+              ).map(dc => (
                 <option key={dc.id} value={dc.id}>{dc.name}</option>
               ))}
             </select>
@@ -1169,7 +1337,34 @@ export default function ValidationPage() {
             </p>
           </div>
 
+          {/* Operating-only: recalibration threshold */}
+          {activeTab === 'operating' && (
+            <div className="col-span-2">
+              <label className={lbl}>Re-calibration Threshold</label>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-500">Trigger re-tuning if C₂H₄ error exceeds ±</span>
+                <input
+                  type="number"
+                  min={0.5} max={10} step={0.5}
+                  value={form.recalibration_threshold}
+                  onChange={e => f('recalibration_threshold', e.target.value)}
+                  disabled={phase === 'running'}
+                  className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                />
+                <span className="text-sm text-gray-500">%</span>
+              </div>
+            </div>
+          )}
+
         </div>
+
+        {/* Tuning Parameters */}
+        <TuningParamsCard
+          params={tuningParams}
+          onChange={setTuningParams}
+          disabled={phase === 'running'}
+          results={Object.keys(tuningResults).length > 0 ? tuningResults : undefined}
+        />
 
         {/* Preflight checks — shown once a design case is selected */}
         {preflight && (
@@ -1345,37 +1540,84 @@ export default function ValidationPage() {
                   </div>
 
                   {biasReport.recommended_cot_bias != null ? (
-                    <div className="grid grid-cols-2 gap-x-10 gap-y-2 text-sm">
-                      <div>
-                        <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">COT Bias</p>
-                        <p className="text-2xl font-bold text-blue-800 tabular-nums">
-                          {biasReport.recommended_cot_bias >= 0 ? '+' : ''}{biasReport.recommended_cot_bias.toFixed(1)} °C
-                        </p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">
-                          Add to DCS COT before each hourly CoilSim run
-                        </p>
-                      </div>
-                      <div className="space-y-2">
-                        <div>
-                          <p className="text-[10px] text-gray-500 uppercase tracking-wide">C₂H₄ error before bias</p>
-                          <p className={`text-sm font-semibold tabular-nums ${
-                            biasReport.c2h4_error_before_bias != null && Math.abs(biasReport.c2h4_error_before_bias) > 5
-                              ? 'text-red-700' : 'text-gray-800'
-                          }`}>
-                            {biasReport.c2h4_error_before_bias != null
-                              ? `${biasReport.c2h4_error_before_bias >= 0 ? '+' : ''}${biasReport.c2h4_error_before_bias.toFixed(2)}%`
-                              : '—'}
-                          </p>
+                    <div className="space-y-3">
+                      {/* Multi-parameter tuning table */}
+                      {Object.keys(tuningResults).length > 0 ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead className="bg-white/60">
+                              <tr className="text-gray-500 uppercase tracking-wider text-[10px]">
+                                <th className="text-left py-1 pr-4">Parameter</th>
+                                <th className="text-right py-1 px-2">Before</th>
+                                <th className="text-right py-1 px-2">After (recommended)</th>
+                                <th className="text-right py-1 px-2">Sensitivity</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-blue-100">
+                              {Object.entries(tuningResults)
+                                .filter(([, r]) => r.result != null)
+                                .map(([key, r]) => {
+                                  const cfg = tuningParams[key] ?? TUNING_DEFAULTS[key]
+                                  const meta = TUNING_META[key]
+                                  const sensLabel = key === 'cot_bias'    ? `${r.sensitivity_used} wt%/°C`
+                                                  : key === 'cip_bias'    ? `${r.sensitivity_used} wt%/atm`
+                                                  : key === 'flux_mult'   ? `${r.sensitivity_used} wt%/0.1`
+                                                  : key === 'adiabatic_l' ? `${r.sensitivity_used} wt%/m`
+                                                  : key === 'shc_bias'    ? `${r.sensitivity_used} wt%/0.01`
+                                                  : '—'
+                                  return (
+                                    <tr key={key}>
+                                      <td className="py-1.5 pr-4 font-medium text-gray-800">{meta.label}</td>
+                                      <td className="py-1.5 px-2 text-right text-gray-400">—</td>
+                                      <td className="py-1.5 px-2 text-right font-semibold text-blue-800 tabular-nums">
+                                        {(r.result ?? 0) >= 0 ? '+' : ''}{r.result} {cfg.unit}
+                                      </td>
+                                      <td className="py-1.5 px-2 text-right text-gray-400 tabular-nums">{sensLabel}</td>
+                                    </tr>
+                                  )
+                                })}
+                              <tr className="border-t border-blue-200 font-semibold">
+                                <td className="py-1.5 pr-4 text-gray-700">C₂H₄ error</td>
+                                <td className="py-1.5 px-2 text-right tabular-nums text-red-700">
+                                  {biasReport.c2h4_error_before_bias != null
+                                    ? `${biasReport.c2h4_error_before_bias >= 0 ? '+' : ''}${biasReport.c2h4_error_before_bias.toFixed(2)}%` : '—'}
+                                </td>
+                                <td className="py-1.5 px-2 text-right tabular-nums text-emerald-700">
+                                  {biasReport.c2h4_error_after_bias != null
+                                    ? `${biasReport.c2h4_error_after_bias >= 0 ? '+' : ''}${biasReport.c2h4_error_after_bias.toFixed(2)}% (est.)` : '—'}
+                                </td>
+                                <td />
+                              </tr>
+                            </tbody>
+                          </table>
                         </div>
-                        <div>
-                          <p className="text-[10px] text-gray-500 uppercase tracking-wide">C₂H₄ error after bias (est.)</p>
-                          <p className="text-sm font-semibold text-emerald-700 tabular-nums">
-                            {biasReport.c2h4_error_after_bias != null
-                              ? `${biasReport.c2h4_error_after_bias >= 0 ? '+' : ''}${biasReport.c2h4_error_after_bias.toFixed(2)}%`
-                              : '—'}
-                          </p>
+                      ) : (
+                        /* Fallback: legacy single COT bias display */
+                        <div className="grid grid-cols-2 gap-x-10 gap-y-2 text-sm">
+                          <div>
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">COT Bias</p>
+                            <p className="text-2xl font-bold text-blue-800 tabular-nums">
+                              {biasReport.recommended_cot_bias >= 0 ? '+' : ''}{biasReport.recommended_cot_bias.toFixed(1)} °C
+                            </p>
+                            <p className="text-[10px] text-gray-400 mt-0.5">Add to DCS COT before each hourly CoilSim run</p>
+                          </div>
+                          <div className="space-y-2">
+                            <div>
+                              <p className="text-[10px] text-gray-500 uppercase tracking-wide">C₂H₄ error before bias</p>
+                              <p className={`text-sm font-semibold tabular-nums ${biasReport.c2h4_error_before_bias != null && Math.abs(biasReport.c2h4_error_before_bias) > 5 ? 'text-red-700' : 'text-gray-800'}`}>
+                                {biasReport.c2h4_error_before_bias != null ? `${biasReport.c2h4_error_before_bias >= 0 ? '+' : ''}${biasReport.c2h4_error_before_bias.toFixed(2)}%` : '—'}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-gray-500 uppercase tracking-wide">C₂H₄ error after bias (est.)</p>
+                              <p className="text-sm font-semibold text-emerald-700 tabular-nums">
+                                {biasReport.c2h4_error_after_bias != null ? `${biasReport.c2h4_error_after_bias >= 0 ? '+' : ''}${biasReport.c2h4_error_after_bias.toFixed(2)}%` : '—'}
+                              </p>
+                            </div>
+                          </div>
                         </div>
-                      </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-x-10 text-sm">
                       {/* Per-furnace bias note based on mode */}
                       <div className="col-span-2 pt-1 border-t border-blue-100">
                         {biasReport.plant_data_mode === 'header' ? (
@@ -1400,6 +1642,93 @@ export default function ValidationPage() {
                     </p>
                   )}
                 </div>
+
+                {/* Drift panel — operating mode only */}
+                {activeTab === 'operating' && driftData && (
+                  <div className={`rounded-xl border-2 p-5 ${
+                    driftData.exceeds_threshold
+                      ? 'border-amber-300 bg-amber-50'
+                      : 'border-emerald-200 bg-emerald-50'
+                  }`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-800">Model Drift Monitor</p>
+                        <p className="text-[11px] text-gray-500 mt-0.5">
+                          Monthly C₂H₄ error trend vs {driftData.threshold}% recalibration threshold
+                        </p>
+                      </div>
+                      {driftData.exceeds_threshold ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-800 bg-amber-100 border border-amber-300 rounded-full px-3 py-1">
+                          ⚠ Recalibration Recommended
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-100 border border-emerald-200 rounded-full px-3 py-1">
+                          ✓ Within Threshold
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Monthly error sparkline table */}
+                    {driftData.monthly_errors.length > 0 ? (
+                      <div className="overflow-x-auto mb-4">
+                        <table className="w-full text-xs">
+                          <thead className="text-gray-500 uppercase tracking-wider text-[10px]">
+                            <tr>
+                              {driftData.monthly_errors.map(m => (
+                                <th key={m.month} className="pb-1 text-center font-medium">{m.month}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              {driftData.monthly_errors.map(m => (
+                                <td key={m.month} className={`text-center tabular-nums font-semibold ${
+                                  m.error_pct == null ? 'text-gray-300'
+                                  : Math.abs(m.error_pct) > driftData.threshold ? 'text-red-700'
+                                  : Math.abs(m.error_pct) > driftData.threshold * 0.7 ? 'text-amber-700'
+                                  : 'text-emerald-700'
+                                }`}>
+                                  {m.error_pct != null
+                                    ? `${m.error_pct >= 0 ? '+' : ''}${m.error_pct.toFixed(1)}%`
+                                    : '—'}
+                                </td>
+                              ))}
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-500 mb-4">No historical validation data found in the last 6 months.</p>
+                    )}
+
+                    {/* Previous calibration info */}
+                    {driftData.previous_calibration?.date && (
+                      <p className="text-[11px] text-gray-500 mb-3">
+                        Last calibration: {new Date(driftData.previous_calibration.date).toLocaleDateString()}
+                        {driftData.previous_calibration.cot_bias != null
+                          ? ` — COT bias ${driftData.previous_calibration.cot_bias >= 0 ? '+' : ''}${driftData.previous_calibration.cot_bias.toFixed(1)} °C`
+                          : ''}
+                      </p>
+                    )}
+
+                    {/* Action buttons */}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handlePromote}
+                        disabled={busyPromote || phase === 'promoted'}
+                        className="flex-1 py-2 rounded-lg bg-blue-700 text-white text-xs font-semibold hover:bg-blue-800 disabled:opacity-50 transition-colors"
+                      >
+                        {busyPromote ? 'Applying…' : 'Apply Recommended Parameters'}
+                      </button>
+                      <button
+                        onClick={handleRetry}
+                        className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-xs font-semibold hover:bg-gray-50 transition-colors"
+                      >
+                        Keep Current
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* 3a — Material Balance */}
                 <div>

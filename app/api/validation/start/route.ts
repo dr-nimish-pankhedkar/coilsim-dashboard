@@ -20,6 +20,8 @@ export async function POST(req: NextRequest) {
       end_date,
       mb_filter_pct = 2.0,
       sample_interval_hrs = 1,
+      validation_mode = 'design',
+      tuning_params = null,
     } = body
 
     if (!design_case_id || !start_date || !end_date) {
@@ -52,9 +54,15 @@ export async function POST(req: NextRequest) {
         validation_runs_total     = NULL,
         validation_runs_failed    = NULL,
         validation_c2h4_error_pct = NULL,
-        validated_at              = NULL
+        validated_at              = NULL,
+        validation_mode           = $5,
+        tuning_params             = CASE WHEN $6::text IS NOT NULL
+                                      THEN $6::jsonb
+                                      ELSE COALESCE(tuning_params, '{}')
+                                    END
        WHERE id = $4`,
-      [start_date, end_date, mb_filter_pct, design_case_id]
+      [start_date, end_date, mb_filter_pct, design_case_id,
+       validation_mode, tuning_params ? JSON.stringify(tuning_params) : null]
     )
     // Remove stale validation results for this design case
     await client.query(
