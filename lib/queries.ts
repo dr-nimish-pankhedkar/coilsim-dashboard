@@ -45,7 +45,8 @@ export async function getAllTasks(): Promise<SimulationTask[]> {
            st.cot_input, st.flow_input, st.project_name, st.coil_id, st.feed_id,
            st.error_message,
            dc.severity_type_parsed AS dc_severity_type,
-           dc.source
+           dc.severity_nominal AS dc_severity_nominal,
+           dc.source AS dc_source
     FROM cs_py_int.simulation_tasks st
     LEFT JOIN cs_py_int.design_cases dc
       ON st.design_case_id = dc.id

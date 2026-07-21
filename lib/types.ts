@@ -20,7 +20,8 @@ export interface SimulationTask {
   error_message: string | null
   // joined from design_cases
   dc_severity_type: string | null
-  source: string | null
+  dc_severity_nominal: number | null
+  dc_source: string | null
 }
 
 export interface DesignCase {

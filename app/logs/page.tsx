@@ -88,13 +88,17 @@ function TaskSummaryTab() {
                 <td className="py-2.5 pr-5"><StatusBadge status={t.status} /></td>
                 <td className="py-2.5 pr-5 text-gray-600 max-w-[140px]">
                   <span className="truncate block" title={t.project_name ?? ''}>{t.project_name ?? '—'}</span>
-                  {t.source === 'uploaded_proj' && (
+                  {t.dc_source === 'uploaded_proj' && (
                     <span className="inline-block mt-0.5 text-[10px] text-gray-400 bg-gray-100 rounded px-1.5 py-0.5 leading-none">uploaded</span>
                   )}
                 </td>
                 <td className="py-2.5 pr-5 text-gray-500 whitespace-nowrap">{fmt(t.created_at)}</td>
                 <td className="py-2.5 pr-5 text-gray-500 whitespace-nowrap">{fmt(t.completed_at)}</td>
-                <td className="py-2.5 pr-5 tabular-nums" title={sevLabel}>{t.cot_input?.toFixed(1) ?? '—'}</td>
+                <td className="py-2.5 pr-5 tabular-nums" title={sevLabel}>
+                  {t.dc_source === 'uploaded_proj' && t.dc_severity_nominal != null
+                    ? t.dc_severity_nominal.toFixed(3)
+                    : t.cot_input?.toFixed(1) ?? '—'}
+                </td>
                 <td className="py-2.5 pr-5 tabular-nums">{t.flow_input?.toFixed(0) ?? '—'}</td>
                 <td className="py-2.5">
                   {(t.status === 'Error' || t.status === 'Failed') && (
