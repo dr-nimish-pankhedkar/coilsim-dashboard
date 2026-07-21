@@ -9,15 +9,15 @@ const MAX_BYTES = 50 * 1024 * 1024  // 50 MB
 const REQUIRED_FILES = [
   'exp.txt',
   'reactor.txt',
-  'feed.txt',
   'units.txt',
-  'FurnaceInput.txt',
-  'profileshape.i',
   'corrections.txt',
+  'profileshape.i',
 ]
 
 const RECOMMENDED_FILES = [
-  'nafta.i',
+  'nafta.i',        // ethane/propane feed definition
+  'feed.txt',       // liquid feed definition (naphtha/gasoil)
+  'FurnaceInput.txt',
   'cokesprofiel.txt',
   'burnerflux.da',
 ]
