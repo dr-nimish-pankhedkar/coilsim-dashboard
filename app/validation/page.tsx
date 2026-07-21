@@ -1635,6 +1635,7 @@ export default function ValidationPage() {
                         )}
                       </div>
                     </div>
+                    </div>
                   ) : (
                     <p className="text-sm text-amber-800">
                       COT bias cannot be computed — plant C₂H₄ yield data not available.
