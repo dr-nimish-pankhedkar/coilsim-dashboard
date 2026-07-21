@@ -96,7 +96,7 @@ function TaskSummaryTab() {
                 <td className="py-2.5 pr-5 text-gray-500 whitespace-nowrap">{fmt(t.completed_at)}</td>
                 <td className="py-2.5 pr-5 tabular-nums" title={sevLabel}>
                   {t.dc_source === 'uploaded_proj' && t.dc_severity_nominal != null
-                    ? t.dc_severity_nominal.toFixed(3)
+                    ? Number(t.dc_severity_nominal).toFixed(2)
                     : t.cot_input?.toFixed(1) ?? '—'}
                 </td>
                 <td className="py-2.5 pr-5 tabular-nums">{t.flow_input?.toFixed(0) ?? '—'}</td>
