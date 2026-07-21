@@ -18,6 +18,9 @@ export interface SimulationTask {
   design_case_id: number | null
   coil_number: number | null
   error_message: string | null
+  // joined from design_cases
+  dc_severity_type: string | null
+  source: string | null
 }
 
 export interface DesignCase {

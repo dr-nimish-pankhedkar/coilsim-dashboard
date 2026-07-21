@@ -63,22 +63,38 @@ function TaskSummaryTab() {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-100">
-            {['ID', 'Type', 'Status', 'Project', 'Created', 'Completed', 'COT (°C)', 'Feed (kg/h)', ''].map(h => (
+            {['ID', 'Type', 'Status', 'Project', 'Created', 'Completed', 'Severity', 'Feed (kg/h)', ''].map(h => (
               <th key={h} className="text-left label py-3 pr-5 whitespace-nowrap">{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {data.map(t => (
+          {data.map(t => {
+            const SEV_LABEL: Record<string, string> = {
+              cot:                'COT (°C)',
+              ethane_conversion:  'Ethane Conv. (%)',
+              propane_conversion: 'Propane Conv. (%)',
+              pe_ratio:           'P/E Ratio',
+              mp_ratio:           'M/P Ratio',
+              ethylene_yield:     'C₂H₄ Yield (%)',
+              methane_yield:      'CH₄ Yield (%)',
+            }
+            const sevLabel = SEV_LABEL[t.dc_severity_type ?? 'cot'] ?? 'Severity'
+            return (
             <>
               <tr key={t.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                 <td className="py-2.5 pr-5 font-mono text-gray-500">#{t.id}</td>
                 <td className="py-2.5 pr-5"><TypeBadge type={t.task_type} /></td>
                 <td className="py-2.5 pr-5"><StatusBadge status={t.status} /></td>
-                <td className="py-2.5 pr-5 text-gray-600 max-w-[120px] truncate" title={t.project_name ?? ''}>{t.project_name ?? '—'}</td>
+                <td className="py-2.5 pr-5 text-gray-600 max-w-[140px]">
+                  <span className="truncate block" title={t.project_name ?? ''}>{t.project_name ?? '—'}</span>
+                  {t.source === 'uploaded_proj' && (
+                    <span className="inline-block mt-0.5 text-[10px] text-gray-400 bg-gray-100 rounded px-1.5 py-0.5 leading-none">uploaded</span>
+                  )}
+                </td>
                 <td className="py-2.5 pr-5 text-gray-500 whitespace-nowrap">{fmt(t.created_at)}</td>
                 <td className="py-2.5 pr-5 text-gray-500 whitespace-nowrap">{fmt(t.completed_at)}</td>
-                <td className="py-2.5 pr-5 tabular-nums">{t.cot_input?.toFixed(1) ?? '—'}</td>
+                <td className="py-2.5 pr-5 tabular-nums" title={sevLabel}>{t.cot_input?.toFixed(1) ?? '—'}</td>
                 <td className="py-2.5 pr-5 tabular-nums">{t.flow_input?.toFixed(0) ?? '—'}</td>
                 <td className="py-2.5">
                   {(t.status === 'Error' || t.status === 'Failed') && (
@@ -104,7 +120,7 @@ function TaskSummaryTab() {
                 </tr>
               )}
             </>
-          ))}
+          )})}
         </tbody>
       </table>
     </div>
