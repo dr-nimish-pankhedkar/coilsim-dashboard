@@ -388,6 +388,11 @@ function DesignCaseWizard() {
   const [uploadDragging,   setUploadDragging]   = useState(false)
   const [uploadError,      setUploadError]      = useState<string | null>(null)
   const [uploadUploading,  setUploadUploading]  = useState(false)
+  const [uploadValidation, setUploadValidation] = useState<{
+    missing_required?: string[]
+    missing_recommended?: string[]
+    found_files?: string[]
+  } | null>(null)
 
   // ── Step 1: Geometry selection ──────────────────────────────────────────
   const [geomSelection, setGeomSelection] = useState<'new'|'standard'|'import'|'generic' | null>(null)
@@ -729,16 +734,30 @@ function DesignCaseWizard() {
 
   async function handleProjFileUpload(file: File) {
     if (!file.name.endsWith('.zip')) { setUploadError('Only .zip files accepted'); return }
-    setUploadUploading(true); setUploadError(null)
+    setUploadUploading(true); setUploadError(null); setUploadValidation(null)
     try {
       const fd = new FormData()
       fd.append('file', file)
       fd.append('name', uploadedProjName.trim() || file.name.replace('.zip', ''))
       const res = await fetch('/api/projects/upload', { method: 'POST', body: fd })
       const data = await res.json()
-      if (!res.ok) { setUploadError(data.error ?? 'Upload failed'); return }
+      if (!res.ok) {
+        setUploadError(data.error ?? 'Upload failed')
+        if (data.missing_required || data.missing_recommended || data.found_files) {
+          setUploadValidation({
+            missing_required:    data.missing_required,
+            missing_recommended: data.missing_recommended,
+            found_files:         data.found_files,
+          })
+        }
+        return
+      }
       setUploadedProjId(data.id)
       setUploadedProjName(data.name)
+      // Show amber warning if recommended files were missing but upload succeeded
+      if (data.missing_recommended?.length > 0) {
+        setUploadValidation({ missing_recommended: data.missing_recommended })
+      }
       mutateUploaded()
     } catch {
       setUploadError('Network error during upload')
@@ -1066,7 +1085,40 @@ function DesignCaseWizard() {
                     </>
                   )}
                 </div>
-                {uploadError && <p className="text-xs text-red-500 mt-1">{uploadError}</p>}
+                {/* Validation error panel — missing required files */}
+                {uploadError && uploadValidation?.missing_required && (
+                  <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700 space-y-1.5">
+                    <p className="font-semibold">❌ {uploadError} — missing required files:</p>
+                    <ul className="list-disc list-inside space-y-0.5">
+                      {uploadValidation.missing_required.map(f => <li key={f}>{f}</li>)}
+                    </ul>
+                    {uploadValidation.missing_recommended && uploadValidation.missing_recommended.length > 0 && (
+                      <>
+                        <p className="font-semibold text-amber-700 pt-0.5">⚠️ Also missing (recommended):</p>
+                        <ul className="list-disc list-inside space-y-0.5 text-amber-700">
+                          {uploadValidation.missing_recommended.map(f => <li key={f}>{f}</li>)}
+                        </ul>
+                      </>
+                    )}
+                    {uploadValidation.found_files && uploadValidation.found_files.length > 0 && (
+                      <p className="text-red-500 pt-0.5">
+                        Files found: {uploadValidation.found_files.slice(0, 8).join(', ')}
+                        {uploadValidation.found_files.length > 8 ? ` … +${uploadValidation.found_files.length - 8} more` : ''}
+                      </p>
+                    )}
+                    <p className="text-red-600 pt-0.5">Open the project in CoilSim GUI first, then zip the folder and re-upload.</p>
+                  </div>
+                )}
+                {/* Plain error (no structure) */}
+                {uploadError && !uploadValidation?.missing_required && (
+                  <p className="text-xs text-red-500 mt-1">{uploadError}</p>
+                )}
+                {/* Amber warning — recommended files missing but upload succeeded */}
+                {!uploadError && uploadValidation?.missing_recommended && uploadValidation.missing_recommended.length > 0 && (
+                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    ⚠️ Some recommended files missing: {uploadValidation.missing_recommended.join(', ')} — simulation may fail for certain feed types.
+                  </div>
+                )}
                 {uploadedProjId && !uploadUploading && (
                   <p className="text-xs text-green-600 mt-1">✓ Using: {uploadedProjName}</p>
                 )}
