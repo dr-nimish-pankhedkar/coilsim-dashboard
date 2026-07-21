@@ -1675,14 +1675,14 @@ export default function ValidationPage() {
                         <table className="w-full text-xs">
                           <thead className="text-gray-500 uppercase tracking-wider text-[10px]">
                             <tr>
-                              {driftData.monthly_errors.map(m => (
+                              {driftData.monthly_errors.map((m: {month: string; error_pct: number | null}) => (
                                 <th key={m.month} className="pb-1 text-center font-medium">{m.month}</th>
                               ))}
                             </tr>
                           </thead>
                           <tbody>
                             <tr>
-                              {driftData.monthly_errors.map(m => (
+                              {driftData.monthly_errors.map((m: {month: string; error_pct: number | null}) => (
                                 <td key={m.month} className={`text-center tabular-nums font-semibold ${
                                   m.error_pct == null ? 'text-gray-300'
                                   : Math.abs(m.error_pct) > driftData.threshold ? 'text-red-700'
