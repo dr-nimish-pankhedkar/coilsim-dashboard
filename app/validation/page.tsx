@@ -1286,29 +1286,32 @@ export default function ValidationPage() {
             </div>
           )}
 
-          <div>
-            <label className={lbl}>Start Date</label>
-            <input type="date" value={form.start_date}
-              onChange={e => f('start_date', e.target.value)}
-              className={inp} disabled={phase === 'running'} />
-          </div>
-          <div>
-            <label className={lbl}>End Date</label>
-            <input type="date" value={form.end_date}
-              onChange={e => f('end_date', e.target.value)}
-              className={inp} disabled={phase === 'running'} />
-          </div>
-
-          <div>
-            <label className={lbl}>Sample Interval</label>
-            <select value={form.sample_interval_hrs}
-              onChange={e => f('sample_interval_hrs', e.target.value as SetupForm['sample_interval_hrs'])}
-              className={inp} disabled={phase === 'running'}>
-              {[['1','Every hour'],['4','Every 4 hrs'],['8','Every 8 hrs'],['12','Every 12 hrs']].map(([v, l]) => (
-                <option key={v} value={v}>{l}</option>
-              ))}
-            </select>
-          </div>
+          {activeTab === 'operating' && (
+            <>
+              <div>
+                <label className={lbl}>Start Date</label>
+                <input type="date" value={form.start_date}
+                  onChange={e => f('start_date', e.target.value)}
+                  className={inp} disabled={phase === 'running'} />
+              </div>
+              <div>
+                <label className={lbl}>End Date</label>
+                <input type="date" value={form.end_date}
+                  onChange={e => f('end_date', e.target.value)}
+                  className={inp} disabled={phase === 'running'} />
+              </div>
+              <div>
+                <label className={lbl}>Sample Interval</label>
+                <select value={form.sample_interval_hrs}
+                  onChange={e => f('sample_interval_hrs', e.target.value as SetupForm['sample_interval_hrs'])}
+                  className={inp} disabled={phase === 'running'}>
+                  {[['1','Every hour'],['4','Every 4 hrs'],['8','Every 8 hrs'],['12','Every 12 hrs']].map(([v, l]) => (
+                    <option key={v} value={v}>{l}</option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
 
           {/* ── Plant Data Configuration — shown when a design case is selected ── */}
           {form.design_case_id && (
