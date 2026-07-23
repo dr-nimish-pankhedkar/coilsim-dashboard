@@ -1324,8 +1324,8 @@ export default function ValidationPage() {
             </select>
           </div>
 
-          {/* Stage 1 — Design Case Validation */}
-          {form.design_case_id && (
+          {/* Stage 1 — Design Case Validation (design tab only) */}
+          {activeTab === 'design' && form.design_case_id && (
             <div className="col-span-2">
               <DesignValidation
                 designCaseId={Number(form.design_case_id)}
