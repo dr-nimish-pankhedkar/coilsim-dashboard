@@ -356,7 +356,7 @@ function DesignValidation({ designCaseId, onAccepted }: {
   // Pre-fill form from last run when expanding
   useEffect(() => {
     const run = data?.run
-    if (!run || !expanded) return
+    if (!run) return
     if (run.cot_degc)   setCond(p => ({ ...p, cot: String(run.cot_degc) }))
     if (run.flow_kg_hr) setCond(p => ({ ...p, flow: String(run.flow_kg_hr) }))
     if (run.shc_ratio)  setCond(p => ({ ...p, shc: String(run.shc_ratio) }))
