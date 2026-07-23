@@ -1315,10 +1315,7 @@ export default function ValidationPage() {
               disabled={phase === 'running'}
             >
               <option value="">— select a design case —</option>
-              {(activeTab === 'operating'
-                ? designCases.filter(dc => dc.verification_status === 'verified')
-                : designCases
-              ).map(dc => (
+              {designCases.map(dc => (
                 <option key={dc.id} value={dc.id}>{dc.name}</option>
               ))}
             </select>
