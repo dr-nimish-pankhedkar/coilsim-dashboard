@@ -365,7 +365,7 @@ function DesignValidation({ designCaseId, onAccepted }: {
     if (run.cop_atm)    setCond(p => ({ ...p, cop: String(run.cop_atm) }))
     if (run.selected_components?.length) setSelected(new Set(run.selected_components))
     if (run.measured_yields) setMeasYields(Object.fromEntries(Object.entries(run.measured_yields).map(([k,v]) => [k, String(v)])))
-  }, [expanded])
+  }, [data])
 
   function applyPreset(key: string) {
     setPreset(key)
