@@ -6,8 +6,26 @@ export const dynamic = 'force-dynamic'
 interface FilterBreakdown {
   total_scanned: number
   cot_low: number
+  mass_balance: number
   stale_composition: number
   queued: number
+}
+
+const MB_SQL_KEYWORDS =
+  /\b(select|insert|update|delete|drop|create|alter|truncate|grant|revoke|where|from|join|union|into|exec|execute|cast|convert|begin|commit|rollback|case|when|then|else|end|null|true|false|and|or|not|is|in|like|between|exists|having|group|order|by|limit|offset|returning)\b/i
+
+function sanitizeMbFormula(
+  formula: string,
+  validColumns: Set<string>,
+): string | null {
+  const trimmed = formula.trim()
+  if (!/^[a-zA-Z0-9_\s+\-*/(). ]+$/.test(trimmed)) return null
+  if (MB_SQL_KEYWORDS.test(trimmed)) return null
+  const tokens = trimmed.match(/\b[a-zA-Z_][a-zA-Z0-9_]*\b/g) ?? []
+  for (const tok of tokens) {
+    if (!validColumns.has(tok)) return null
+  }
+  return trimmed
 }
 
 export async function POST(req: NextRequest) {
@@ -19,6 +37,7 @@ export async function POST(req: NextRequest) {
       start_date,
       end_date,
       mb_filter_pct = 2.0,
+      mb_formula = 'mass_balance_error_pct',
       sample_interval_hrs = 1,
       validation_mode = 'design',
       tuning_params = null,
@@ -50,6 +69,7 @@ export async function POST(req: NextRequest) {
         validation_start_date     = $1,
         validation_end_date       = $2,
         validation_mb_filter      = $3,
+        mb_formula                = $7,
         cot_bias_degc             = NULL,
         validation_runs_total     = NULL,
         validation_runs_failed    = NULL,
@@ -62,7 +82,8 @@ export async function POST(req: NextRequest) {
                                     END
        WHERE id = $4`,
       [start_date, end_date, mb_filter_pct, design_case_id,
-       validation_mode, tuning_params ? JSON.stringify(tuning_params) : null]
+       validation_mode, tuning_params ? JSON.stringify(tuning_params) : null,
+       mb_formula || 'mass_balance_error_pct']
     )
     // Remove stale validation results for this design case
     await client.query(
@@ -123,6 +144,7 @@ export async function POST(req: NextRequest) {
     const breakdown: FilterBreakdown = {
       total_scanned: rows.length,
       cot_low: 0,
+      mass_balance: 0,
       stale_composition: 0,
       queued: 0,
     }
@@ -172,6 +194,36 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Pre-load mass balance formula values from validation_reference_data
+    // Formula is sanitized against actual column names before being embedded in SQL.
+    const mbFilterMap = new Map<number, number>() // hour epoch → formula result
+    try {
+      const vrdColRes = await client.query<{ column_name: string }>(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_schema = 'cs_py_int'
+          AND table_name   = 'validation_reference_data'
+          AND data_type IN ('numeric','double precision','real','integer','bigint','smallint')
+      `)
+      const validMbCols = new Set(vrdColRes.rows.map(r => r.column_name))
+      const safeMbFormula = sanitizeMbFormula(mb_formula, validMbCols) ?? 'mass_balance_error_pct'
+      if (validMbCols.has(safeMbFormula) || safeMbFormula.includes('_')) {
+        const mbRes = await client.query(`
+          SELECT
+            date_trunc('hour', timestamp) AS hour_ts,
+            (${safeMbFormula})::numeric   AS mb_result
+          FROM cs_py_int.validation_reference_data
+          WHERE timestamp >= $1::timestamptz
+            AND timestamp < ($2::date + 1)::timestamptz
+            AND (${safeMbFormula}) IS NOT NULL
+        `, [start_date, end_date])
+        for (const r of mbRes.rows) {
+          mbFilterMap.set(new Date(r.hour_ts).getTime(), parseFloat(r.mb_result))
+        }
+      }
+    } catch {
+      // validation_reference_data unavailable — skip mass balance filter
+    }
+
     // Stage 1 design bias applied at queue time; operating bias computed after all runs complete.
     for (const row of rows) {
       const cotDcs = parseFloat(row.cot_input)
@@ -182,7 +234,17 @@ export async function POST(req: NextRequest) {
         continue
       }
 
-      // Phase 2 filter: stale composition
+      // Phase 2 filter: mass balance formula
+      if (mbFilterMap.size > 0) {
+        const hourEpoch = Math.floor(new Date(row.created_at).getTime() / 3_600_000) * 3_600_000
+        const mbVal = mbFilterMap.get(hourEpoch)
+        if (mbVal != null && Math.abs(mbVal) > mb_filter_pct) {
+          breakdown.mass_balance++
+          continue
+        }
+      }
+
+      // Phase 3 filter: stale composition
       if (row.composition_stale) {
         breakdown.stale_composition++
         continue
@@ -250,7 +312,7 @@ export async function POST(req: NextRequest) {
       filter_breakdown: {
         total_scanned:     breakdown.total_scanned,
         cot_low:           breakdown.cot_low,
-        mass_balance:      0,   // requires plant mass balance tags (not yet configured)
+        mass_balance:      breakdown.mass_balance,
         composition_stale: breakdown.stale_composition,
         queued:            breakdown.queued,
       },

@@ -228,9 +228,21 @@ interface SetupForm {
   design_case_id: string
   start_date: string
   end_date: string
-  mb_filter_pct: '1' | '2'
+  mb_filter_pct: '1' | '2' | 'custom'
   sample_interval_hrs: '1' | '4' | '8' | '12'
   recalibration_threshold: string
+}
+
+interface MbPreviewRow {
+  timestamp: string
+  value: number
+  within_threshold: boolean
+}
+
+interface MbValidation {
+  valid: boolean
+  error?: string
+  preview?: MbPreviewRow[]
 }
 
 interface StartResult {
@@ -1049,6 +1061,12 @@ export default function ValidationPage() {
     sample_interval_hrs:     '1',
     recalibration_threshold: '2.0',
   })
+  const [mbFormula,     setMbFormula]     = useState('mass_balance_error_pct')
+  const [mbCustomPct,   setMbCustomPct]   = useState('')
+  const [mbValidation,  setMbValidation]  = useState<MbValidation | null>(null)
+  const [mbValidating,  setMbValidating]  = useState(false)
+  const formulaRef = useRef<HTMLTextAreaElement>(null)
+
   const [phase,       setPhase]       = useState<Phase>('setup')
   const [activeDcId,  setActiveDcId]  = useState<number | null>(null)
   const [startResult, setStartResult] = useState<StartResult | null>(null)
@@ -1073,6 +1091,12 @@ export default function ValidationPage() {
 
   const { data: rawDcs } = useSWR<DesignCase[]>('/api/design-cases', fetcher, { refreshInterval: 60_000 })
   const designCases: DesignCase[] = Array.isArray(rawDcs) ? rawDcs : []
+
+  const { data: rawMbCols } = useSWR<string[]>(
+    activeTab === 'operating' ? '/api/validation/mb-columns' : null,
+    fetcher,
+  )
+  const mbColumns: string[] = Array.isArray(rawMbCols) ? rawMbCols : []
 
   const preflightKey = form.design_case_id && phase === 'setup'
     ? `/api/validation/preflight/${form.design_case_id}` : null
@@ -1100,10 +1124,45 @@ export default function ValidationPage() {
   const selectedDc = designCases.find(d => d.id === Number(form.design_case_id)) ?? null
 
   // ── handlers ────────────────────────────────────────────────────────────────
+  function insertAtCursor(col: string) {
+    const ta = formulaRef.current
+    if (!ta) { setMbFormula(prev => prev + col); return }
+    const start = ta.selectionStart ?? mbFormula.length
+    const end   = ta.selectionEnd   ?? mbFormula.length
+    const next  = mbFormula.slice(0, start) + col + mbFormula.slice(end)
+    setMbFormula(next)
+    setMbValidation(null)
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.setSelectionRange(start + col.length, start + col.length)
+    })
+  }
+
+  async function handleValidateFormula() {
+    if (!mbFormula.trim()) return
+    setMbValidating(true); setMbValidation(null)
+    try {
+      const threshold = form.mb_filter_pct === 'custom'
+        ? (parseFloat(mbCustomPct) || 2)
+        : Number(form.mb_filter_pct)
+      const res = await fetch('/api/validation/validate-formula', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ formula: mbFormula, mb_filter_pct: threshold }),
+      })
+      setMbValidation(await res.json())
+    } finally {
+      setMbValidating(false)
+    }
+  }
+
   async function handleStart() {
     if (!form.design_case_id) { setErrMsg('Select a design case.'); return }
     setBusyStart(true); setErrMsg('')
     try {
+      const mbFilterPct = form.mb_filter_pct === 'custom'
+        ? (parseFloat(mbCustomPct) || 2.0)
+        : Number(form.mb_filter_pct)
       const res = await fetch('/api/validation/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1111,7 +1170,8 @@ export default function ValidationPage() {
           design_case_id:      Number(form.design_case_id),
           start_date:          form.start_date,
           end_date:            form.end_date,
-          mb_filter_pct:       Number(form.mb_filter_pct),
+          mb_filter_pct:       mbFilterPct,
+          mb_formula:          mbFormula.trim() || 'mass_balance_error_pct',
           sample_interval_hrs: Number(form.sample_interval_hrs),
           validation_mode:     activeTab,
           tuning_params:       tuningParams,
@@ -1313,8 +1373,8 @@ export default function ValidationPage() {
             </>
           )}
 
-          {/* ── Plant Data Configuration — shown when a design case is selected ── */}
-          {form.design_case_id && (
+          {/* ── Plant Data Configuration — operating tab only ── */}
+          {activeTab === 'operating' && form.design_case_id && (
             <PlantDataConfig
               designCaseId={Number(form.design_case_id)}
               disabled={phase === 'running'}
@@ -1322,10 +1382,47 @@ export default function ValidationPage() {
             />
           )}
 
-          <div className="col-span-2">
+          <div className="col-span-2 space-y-3">
             <label className={lbl}>Mass Balance Filter</label>
-            <div className="flex gap-2 mt-1">
-              {(['1','2'] as const).map(v => (
+
+            {/* Formula textarea */}
+            <div>
+              <p className="text-xs text-gray-500 mb-1">Formula</p>
+              <textarea
+                ref={formulaRef}
+                value={mbFormula}
+                onChange={e => { setMbFormula(e.target.value); setMbValidation(null) }}
+                disabled={phase === 'running'}
+                rows={2}
+                spellCheck={false}
+                className="w-full text-sm font-mono border border-gray-200 rounded px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:bg-gray-50 disabled:text-gray-400"
+              />
+              <p className="text-[10px] text-gray-400 mt-0.5">
+                Use column names from the historian. Supports +, -, *, /, ()
+              </p>
+            </div>
+
+            {/* Column chips */}
+            {mbColumns.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {mbColumns.map(col => (
+                  <button
+                    key={col}
+                    type="button"
+                    onClick={() => insertAtCursor(col)}
+                    disabled={phase === 'running'}
+                    className="text-[11px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-gray-400 hover:text-gray-800 font-mono transition-colors disabled:opacity-40"
+                  >
+                    {col}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Threshold row */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-gray-500 mr-1">Threshold</span>
+              {(['1', '2'] as const).map(v => (
                 <button key={v} type="button"
                   className={radio(form.mb_filter_pct === v)}
                   onClick={() => f('mb_filter_pct', v)}
@@ -1333,11 +1430,71 @@ export default function ValidationPage() {
                   ±{v}%
                 </button>
               ))}
+              <button type="button"
+                className={radio(form.mb_filter_pct === 'custom')}
+                onClick={() => f('mb_filter_pct', 'custom')}
+                disabled={phase === 'running'}>
+                Custom
+              </button>
+              {form.mb_filter_pct === 'custom' && (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number" step="0.1" min="0"
+                    value={mbCustomPct}
+                    onChange={e => setMbCustomPct(e.target.value)}
+                    placeholder="e.g. 3.5"
+                    disabled={phase === 'running'}
+                    className="w-20 text-sm border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  />
+                  <span className="text-xs text-gray-400">%</span>
+                </div>
+              )}
             </div>
-            <p className="text-[10px] text-gray-400 mt-1">
-              Timestamps where the plant mass balance error exceeds this threshold are filtered out.
-              (Requires plant mass balance tag — currently applied as COT &lt; 780°C filter only.)
-            </p>
+
+            {/* Validate button + inline result */}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleValidateFormula}
+                disabled={!mbFormula.trim() || mbValidating || phase === 'running'}
+                className="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:border-gray-500 transition-colors disabled:opacity-40"
+              >
+                {mbValidating ? 'Validating…' : 'Validate Formula'}
+              </button>
+              {mbValidation && (
+                mbValidation.valid
+                  ? <span className="text-xs text-emerald-600">✓ Returns numeric value</span>
+                  : <span className="text-xs text-red-500">✗ {mbValidation.error}</span>
+              )}
+            </div>
+
+            {/* Preview table */}
+            {mbValidation?.valid && mbValidation.preview && mbValidation.preview.length > 0 && (
+              <div className="border border-gray-100 rounded overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-400 text-[10px]">
+                      <th className="text-left px-3 py-1.5">Timestamp</th>
+                      <th className="text-right px-3 py-1.5">Value</th>
+                      <th className="text-right px-3 py-1.5">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mbValidation.preview.map((p, i) => (
+                      <tr key={i} className="border-t border-gray-50">
+                        <td className="px-3 py-1 font-mono text-gray-500">{p.timestamp}</td>
+                        <td className="px-3 py-1 text-right tabular-nums">{p.value.toFixed(3)}</td>
+                        <td className={`px-3 py-1 text-right ${p.within_threshold ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {p.within_threshold
+                            ? `✓ within ±${form.mb_filter_pct === 'custom' ? (mbCustomPct || '?') : form.mb_filter_pct}%`
+                            : '✗ filtered out'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* Operating-only: recalibration threshold */}
