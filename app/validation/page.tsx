@@ -332,7 +332,7 @@ function DesignValidation({ designCaseId, onAccepted }: {
   designCaseId: number
   onAccepted: (biasDegc: number | null) => void
 }) {
-  const [expanded,  setExpanded]  = useState(false)
+
   const [preset,    setPreset]    = useState<string | null>(null)
   const [selected,  setSelected]  = useState<Set<string>>(new Set())
   const [measYields,setMeasYields]= useState<Record<string,string>>({})
@@ -435,7 +435,6 @@ function DesignValidation({ designCaseId, onAccepted }: {
       body: JSON.stringify({ action: 'accept', run_id: run.id, bias_degc: run.bias_degc }),
     })
     mutate()
-    setExpanded(false)
   }
 
   const isValidated = data?.design_validation_status === 'validated'
@@ -459,15 +458,10 @@ function DesignValidation({ designCaseId, onAccepted }: {
         </div>
         <div className="flex items-center gap-2">
           {isValidated && <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-medium">✓ Stage 1 done</span>}
-          <button
-            onClick={() => setExpanded(v => !v)}
-            className="text-xs text-gray-400 hover:text-gray-700 px-2 py-1 rounded border border-gray-200 hover:border-gray-400 transition-colors"
-          >{expanded ? 'Collapse ▲' : isValidated ? 'Re-validate' : 'Configure ▼'}</button>
         </div>
       </div>
 
-      {expanded && (
-        <div className="mt-5 space-y-5 border-t border-gray-100 pt-5">
+      <div className="mt-5 space-y-5 border-t border-gray-100 pt-5">
 
           {/* Feed preset buttons */}
           <div>
@@ -628,7 +622,6 @@ function DesignValidation({ designCaseId, onAccepted }: {
             <p className="text-[10px] text-gray-400">Worker must be active — runs one CoilSim job at the design conditions.</p>
           </div>
         </div>
-      )}
     </div>
   )
 }
@@ -1382,7 +1375,7 @@ export default function ValidationPage() {
             />
           )}
 
-          <div className="col-span-2 space-y-3">
+          {activeTab === 'operating' && <div className="col-span-2 space-y-3">
             <label className={lbl}>Mass Balance Filter</label>
 
             {/* Formula textarea */}
@@ -1495,7 +1488,7 @@ export default function ValidationPage() {
                 </table>
               </div>
             )}
-          </div>
+          </div>}
 
           {/* Operating-only: recalibration threshold */}
           {activeTab === 'operating' && (
