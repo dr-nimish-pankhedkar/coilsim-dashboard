@@ -13,7 +13,7 @@ export async function GET(
   try {
     // 1. Design case exists and is runnable
     const dcRes = await pool.query(
-      `SELECT id, name, project_name, coil_id, feed_id, validation_status, source
+      `SELECT id, name, project_name, coil_id, feed_id, validation_status, source, uploaded_proj_id
        FROM cs_py_int.design_cases WHERE id = $1`,
       [dcId]
     )
@@ -30,7 +30,7 @@ export async function GET(
     })
 
     // 3. Has coil_id and feed_id (not required for uploaded cases — geometry/feed come from the ZIP)
-    const isUploaded = dc.source === 'uploaded_proj'
+    const isUploaded = dc.source === 'uploaded_proj' || !!dc.uploaded_proj_id
     checks.push({
       name:   'Coil ID configured',
       ok:     isUploaded || !!dc.coil_id,
@@ -64,13 +64,13 @@ export async function GET(
         : 'No completed DCS simulation tasks found in the last 90 days',
     })
 
-    // 5. Worker is alive (last heartbeat within 5 min)
+    // 5. Worker is alive (last heartbeat within 2 min)
     const wRes = await pool.query(`
-      SELECT updated_at FROM cs_py_int.worker_heartbeat
-      ORDER BY updated_at DESC LIMIT 1
+      SELECT last_pulse FROM cs_py_int.worker_heartbeat
+      ORDER BY last_pulse DESC LIMIT 1
     `).catch(() => ({ rows: [] as any[] }))
-    const lastBeat = wRes.rows[0]?.updated_at
-    const workerAlive = lastBeat && (Date.now() - new Date(lastBeat).getTime()) < 5 * 60 * 1000
+    const lastBeat = wRes.rows[0]?.last_pulse
+    const workerAlive = lastBeat && (Date.now() - new Date(lastBeat).getTime()) < 2 * 60 * 1000
     checks.push({
       name:   'Worker heartbeat',
       ok:     !!workerAlive,
