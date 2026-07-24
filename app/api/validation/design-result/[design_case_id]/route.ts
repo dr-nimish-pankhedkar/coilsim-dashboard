@@ -13,7 +13,8 @@ export async function GET(
   const client = await pool.connect()
   try {
     const res = await client.query(
-      `SELECT design_validation_status, design_validation_result, expected_yields
+      `SELECT design_validation_status, design_validation_result, expected_yields,
+              design_cot_bias_degc, severity_type_parsed, severity_nominal, case_params
        FROM cs_py_int.design_cases WHERE id = $1`,
       [id]
     )
