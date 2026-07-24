@@ -681,6 +681,7 @@ interface TagRow {
   status:       'idle' | 'checking' | 'found' | 'not_found'
   sample_value: number | null
   last_seen:    string | null
+  source?:      string
 }
 
 interface PlantCfgData {
@@ -690,7 +691,7 @@ interface PlantCfgData {
   fuel_gas_lhv_kj_kg: number
   furnaces:           string[]
   passes:             Array<{ furnace_id: string; pass_id: string }>
-  tag_validation:     Array<{ tag_name: string; exists: boolean; sample_value: number|null; last_seen: string|null }>
+  tag_validation:     Array<{ tag_name: string; exists: boolean; sample_value: number|null; last_seen: string|null; source?: string }>
 }
 
 const MODE_OPTIONS = [
@@ -740,10 +741,11 @@ function TagStatus({ row }: { row: TagRow }) {
     const age = row.last_seen
       ? (() => { const m = Math.floor((Date.now() - new Date(row.last_seen).getTime()) / 60000); return m < 60 ? `${m}m ago` : `${Math.floor(m/60)}h ago` })()
       : ''
+    const isVrd = row.source === 'validation_reference_data'
     return (
       <span className="text-emerald-600 text-[10px]">
-        ● {row.sample_value != null ? row.sample_value.toFixed(2) : ''}
-        {row.tag_unit ? ` ${row.tag_unit}` : ''}{age ? ` · ${age}` : ''}
+        ● {isVrd ? 'Found in reference data' : ''}{row.sample_value != null ? `${isVrd ? ' — last value: ' : ''}${row.sample_value.toFixed(2)}` : ''}
+        {!isVrd && row.tag_unit ? ` ${row.tag_unit}` : ''}{!isVrd && age ? ` · ${age}` : ''}
       </span>
     )
   }
@@ -788,7 +790,7 @@ function PlantDataConfig({
       // Restore validation status from saved tag_validation
       setTags(rows.map(r => {
         const v = cfg.tag_validation.find(tv => tv.tag_name === r.tag_name && r.tag_name !== '')
-        return v ? { ...r, status: v.exists ? 'found' : 'not_found', sample_value: v.sample_value, last_seen: v.last_seen } : r
+        return v ? { ...r, status: v.exists ? 'found' : 'not_found', sample_value: v.sample_value, last_seen: v.last_seen, source: v.source } : r
       }))
       setSaveOk(cfg.tags.length > 0)
     }
@@ -826,7 +828,7 @@ function PlantDataConfig({
       const r = await fetch(`/api/validation/plant-config/${designCaseId}?check_tag=${encodeURIComponent(tagName)}`)
       const j = await r.json()
       setTags(prev => prev.map((t, n) => n === i
-        ? { ...t, status: j.exists ? 'found' : 'not_found', sample_value: j.sample_value, last_seen: j.last_seen }
+        ? { ...t, status: j.exists ? 'found' : 'not_found', sample_value: j.sample_value, last_seen: j.last_seen, source: j.source }
         : t))
     } catch {
       setTags(prev => prev.map((t, n) => n === i ? { ...t, status: 'not_found' } : t))

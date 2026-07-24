@@ -5,24 +5,57 @@ export const dynamic = 'force-dynamic'
 
 type Ctx = { params: { design_case_id: string } }
 
-// Validate a single tag against hourly_data
+const VRD_COLUMNS = [
+  'plant_c2h4_mt_hr', 'plant_h2_ch4_mt_hr',
+  'plant_c2h6_mt_hr', 'plant_c3plus_mt_hr',
+  'mass_balance_error_pct', 'recycle_ethane_mt_hr',
+  'feed_from_aramco_mt_hr', 'total_hc_flow_mt_hr',
+  'aramco_feed_normalized_ethane_pct',
+  'fur1_cot','fur2_cot','fur3_cot','fur4_cot','fur5_cot',
+  'fur6_cot','fur7_cot','fur8_cot','fur9_cot',
+]
+
+// Validate a single tag against hourly_data, then validation_reference_data
 async function checkTag(client: any, tagName: string) {
   try {
+    // 1. Check hourly_data first
     const r = await client.query(
       `SELECT value, timestamp FROM cs_py_int.hourly_data
        WHERE tag_name = $1 ORDER BY timestamp DESC LIMIT 1`,
       [tagName]
     )
-    if (!r.rows.length) return { tag_name: tagName, exists: false, sample_value: null, last_seen: null }
-    const row = r.rows[0]
-    return {
-      tag_name:     tagName,
-      exists:       true,
-      sample_value: row.value != null ? parseFloat(row.value) : null,
-      last_seen:    row.timestamp ? new Date(row.timestamp).toISOString() : null,
+    if (r.rows.length) {
+      const row = r.rows[0]
+      return {
+        tag_name:     tagName,
+        exists:       true,
+        sample_value: row.value != null ? parseFloat(row.value) : null,
+        last_seen:    row.timestamp ? new Date(row.timestamp).toISOString() : null,
+      }
     }
+
+    // 2. Fall back to validation_reference_data for known VRD columns
+    if (VRD_COLUMNS.includes(tagName)) {
+      const vr = await client.query(
+        `SELECT "${tagName}" as value, timestamp
+         FROM cs_py_int.validation_reference_data
+         WHERE "${tagName}" IS NOT NULL
+         ORDER BY timestamp DESC LIMIT 1`
+      )
+      if (vr.rows.length) {
+        const row = vr.rows[0]
+        return {
+          tag_name:     tagName,
+          exists:       true,
+          sample_value: row.value != null ? parseFloat(row.value) : null,
+          last_seen:    row.timestamp ? new Date(row.timestamp).toISOString() : null,
+          source:       'validation_reference_data',
+        }
+      }
+    }
+
+    return { tag_name: tagName, exists: false, sample_value: null, last_seen: null }
   } catch {
-    // hourly_data may not yet exist or tag column may differ — return not-found gracefully
     return { tag_name: tagName, exists: false, sample_value: null, last_seen: null }
   }
 }
