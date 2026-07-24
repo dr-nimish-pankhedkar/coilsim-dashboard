@@ -13,7 +13,7 @@ export async function GET(
   try {
     // 1. Design case exists and is runnable
     const dcRes = await pool.query(
-      `SELECT id, name, project_name, coil_id, feed_id, validation_status
+      `SELECT id, name, project_name, coil_id, feed_id, validation_status, source
        FROM cs_py_int.design_cases WHERE id = $1`,
       [dcId]
     )
@@ -29,16 +29,17 @@ export async function GET(
       detail: dc.project_name ? dc.project_name : 'No project_name on design case — worker will auto-detect',
     })
 
-    // 3. Has coil_id and feed_id
+    // 3. Has coil_id and feed_id (not required for uploaded cases — geometry/feed come from the ZIP)
+    const isUploaded = dc.source === 'uploaded_proj'
     checks.push({
       name:   'Coil ID configured',
-      ok:     !!dc.coil_id,
-      detail: dc.coil_id ? `coil_id = ${dc.coil_id}` : 'No coil_id — worker cannot build geometry',
+      ok:     isUploaded || !!dc.coil_id,
+      detail: isUploaded ? 'Uploaded case — geometry from project files' : (dc.coil_id ? `coil_id = ${dc.coil_id}` : 'No coil_id — worker cannot build geometry'),
     })
     checks.push({
       name:   'Feed ID configured',
-      ok:     !!dc.feed_id,
-      detail: dc.feed_id ? `feed_id = ${dc.feed_id}` : 'No feed_id — worker cannot build feed composition',
+      ok:     isUploaded || !!dc.feed_id,
+      detail: isUploaded ? 'Uploaded case — feed composition from project files' : (dc.feed_id ? `feed_id = ${dc.feed_id}` : 'No feed_id — worker cannot build feed composition'),
     })
 
     // 4. DCS history available in last 90 days
