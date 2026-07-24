@@ -6,6 +6,80 @@ import type { CoilGeometry, FeedstockDefinition } from '@/lib/types'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
+// ── Verification status panel (shown after upload submission) ─────────────────
+interface VerifData {
+  verification_status: 'pending' | 'verified' | 'failed'
+  verified_at: string | null
+  verification_error: string | null
+  severity_type: string | null
+  severity_nominal: number | null
+}
+
+function VerifStatusPanel({ dcId }: { dcId: number }) {
+  const [retrying, setRetrying] = useState(false)
+  const { data, mutate } = useSWR<VerifData>(
+    `/api/design-cases/${dcId}/verification`,
+    fetcher,
+    { refreshInterval: (d) => (!d || d.verification_status === 'pending' ? 10_000 : 0) }
+  )
+
+  const status = data?.verification_status ?? 'pending'
+
+  async function retry() {
+    setRetrying(true)
+    await fetch(`/api/design-cases/${dcId}/verification`, { method: 'POST' })
+    await mutate()
+    setRetrying(false)
+  }
+
+  if (status === 'pending') {
+    return (
+      <div className="mt-4 flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+        <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse inline-block" />
+        Waiting for worker to verify your project…
+        <span className="text-xs text-amber-500 ml-1">(auto-refreshes)</span>
+      </div>
+    )
+  }
+
+  if (status === 'verified') {
+    return (
+      <div className="mt-4 flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3">
+        <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
+        <span>
+          <span className="font-semibold">Verified</span>
+          {data?.severity_type && data?.severity_nominal != null && (
+            <span className="ml-1 font-normal opacity-80">
+              — {data.severity_type.replace(/_/g, ' ')} = {Number(data.severity_nominal).toFixed(2)}
+            </span>
+          )}
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 bg-red-50 border border-red-200 rounded-lg px-4 py-3 space-y-2">
+      <div className="flex items-center justify-between gap-3 text-sm text-red-700">
+        <span className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-red-400 inline-block" />
+          <span className="font-semibold">Verification failed</span>
+        </span>
+        <button
+          onClick={retry}
+          disabled={retrying}
+          className="text-xs px-3 py-1 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+        >
+          {retrying ? 'Retrying…' : 'Retry'}
+        </button>
+      </div>
+      {data?.verification_error && (
+        <p className="text-xs text-red-600 font-mono break-all">{data.verification_error}</p>
+      )}
+    </div>
+  )
+}
+
 // ── CoilSim constants ─────────────────────────────────────────────────────────
 
 const COIL_TYPES = [
@@ -731,6 +805,7 @@ function DesignCaseWizard() {
   // ── Submit ───────────────────────────────────────────────────────────────
   const [submitState, setSubmitState] = useState<'idle'|'loading'|'ok'|'err'>('idle')
   const [submitMsg,   setSubmitMsg]   = useState('')
+  const [submitDcId,  setSubmitDcId]  = useState<number | null>(null)
 
   async function handleProjFileUpload(file: File) {
     if (!file.name.endsWith('.zip')) { setUploadError('Only .zip files accepted'); return }
@@ -794,6 +869,7 @@ function DesignCaseWizard() {
         if (!runRes.ok) { setSubmitState('err'); setSubmitMsg(json.error ?? 'Failed'); return }
         setSubmitState('ok')
         setSubmitMsg(`Task #${json.id} queued. Worker will pick it up shortly.`)
+        setSubmitDcId(json.design_case_id ?? null)
         return
       }
 
@@ -2431,16 +2507,19 @@ function DesignCaseWizard() {
           )}
 
           {submitState === 'ok' && (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
-              <div className="flex items-start gap-3">
-                <span className="text-emerald-500 text-xl">✓</span>
-                <div>
-                  <p className="text-sm font-semibold text-emerald-800">{submitMsg}</p>
-                  <p className="text-xs text-emerald-600 mt-1">
-                    Design case saved. Select it as the active model on the dashboard to use it for hourly runs.
-                  </p>
+            <div className="space-y-2">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+                <div className="flex items-start gap-3">
+                  <span className="text-emerald-500 text-xl">✓</span>
+                  <div>
+                    <p className="text-sm font-semibold text-emerald-800">{submitMsg}</p>
+                    <p className="text-xs text-emerald-600 mt-1">
+                      Design case saved. Select it as the active model on the dashboard to use it for hourly runs.
+                    </p>
+                  </div>
                 </div>
               </div>
+              {submitDcId != null && <VerifStatusPanel dcId={submitDcId} />}
             </div>
           )}
 

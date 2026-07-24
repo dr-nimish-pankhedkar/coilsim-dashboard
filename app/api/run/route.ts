@@ -59,11 +59,11 @@ export async function POST(req: NextRequest) {
       if (!uploaded_proj_id || !project_name) {
         return NextResponse.json({ error: 'Missing uploaded_proj_id or project_name' }, { status: 400 })
       }
-      const id = await submitUploadedProjRun(
+      const { taskId, designCaseId } = await submitUploadedProjRun(
         Number(uploaded_proj_id), project_name,
         design_case_name || project_name, runParams
       )
-      return NextResponse.json({ id })
+      return NextResponse.json({ id: taskId, design_case_id: designCaseId })
     }
 
     return NextResponse.json({ error: 'Invalid type' }, { status: 400 })

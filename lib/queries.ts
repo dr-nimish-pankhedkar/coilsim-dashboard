@@ -239,20 +239,22 @@ export async function submitUploadedProjRun(
   project_name: string,
   design_case_name: string,
   p: RunParams
-): Promise<number> {
+): Promise<{ taskId: number; designCaseId: number }> {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
 
     // Upsert a design_cases record (no coil_id/feed_id — uploaded project)
-    await client.query(
+    const dcRes = await client.query<{ id: number }>(
       `INSERT INTO cs_py_int.design_cases (name, project_name, uploaded_proj_id)
        VALUES ($1, $2, $3)
        ON CONFLICT (project_name) DO UPDATE
          SET name = EXCLUDED.name,
-             uploaded_proj_id = EXCLUDED.uploaded_proj_id`,
+             uploaded_proj_id = EXCLUDED.uploaded_proj_id
+       RETURNING id`,
       [design_case_name, project_name, uploaded_proj_id]
     )
+    const designCaseId = dcRes.rows[0].id
 
     const res = await client.query<{ id: number }>(
       `INSERT INTO cs_py_int.simulation_tasks
@@ -281,7 +283,7 @@ export async function submitUploadedProjRun(
     )
 
     await client.query('COMMIT')
-    return res.rows[0].id
+    return { taskId: res.rows[0].id, designCaseId }
   } catch (err) {
     await client.query('ROLLBACK')
     throw err
