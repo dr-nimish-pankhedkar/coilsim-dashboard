@@ -171,6 +171,7 @@ export async function POST(req: NextRequest) {
     function toKgHr(value: number, unit: string, hcFlow: number): number {
       if (unit === 'wt%')      return (value / 100) * hcFlow
       if (unit === 'fraction') return value * hcFlow
+      if (unit === 'MT/hr')    return value * 1000
       return value  // kg/hr already
     }
 

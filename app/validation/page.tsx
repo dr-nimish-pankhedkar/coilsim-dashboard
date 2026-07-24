@@ -677,7 +677,7 @@ interface TagRow {
   furnace_id:   string | null
   pass_id:      string | null
   tag_name:     string
-  tag_unit:     'wt%' | 'kg/hr' | 'fraction'
+  tag_unit:     'wt%' | 'kg/hr' | 'MT/hr' | 'fraction'
   status:       'idle' | 'checking' | 'found' | 'not_found'
   sample_value: number | null
   last_seen:    string | null
@@ -942,6 +942,7 @@ function PlantDataConfig({
                       onChange={e => updateTag(i, 'tag_unit', e.target.value as TagRow['tag_unit'])}>
                       <option value="wt%">wt%</option>
                       <option value="kg/hr">kg/hr</option>
+                      <option value="MT/hr">MT/hr</option>
                       <option value="fraction">fraction</option>
                     </select>
                   </td>
