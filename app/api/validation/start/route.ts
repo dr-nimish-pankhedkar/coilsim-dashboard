@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
           cop_input,
           created_at,
           date_trunc('hour', created_at) +
-            (FLOOR(EXTRACT(HOUR FROM created_at) / $4) * $4 || ' hours')::interval AS bucket
+            (FLOOR(EXTRACT(HOUR FROM created_at) / $3) * $3 || ' hours')::interval AS bucket
         FROM cs_py_int.simulation_tasks
         WHERE status = 'Completed'
           AND task_type != 'validation'
@@ -136,12 +136,12 @@ export async function POST(req: NextRequest) {
         CASE
           WHEN prev_dil IS NOT NULL
             AND ABS(dilution_ratio::numeric - prev_dil::numeric) < 0.0001
-            AND (created_at - prev_ts) > ($5 || ' days')::interval
+            AND (created_at - prev_ts) > ($4 || ' days')::interval
           THEN true ELSE false
         END AS composition_stale
       FROM with_prev
       ORDER BY created_at
-    `, [start_date, end_date, mb_filter_pct, sample_interval_hrs, STALE_COMPOSITION_DAYS])
+    `, [start_date, end_date, sample_interval_hrs, STALE_COMPOSITION_DAYS])
 
     const rows = histRes.rows
     const cotThreshold = Number(cot_threshold_degc) || 780
