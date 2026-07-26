@@ -245,9 +245,20 @@ interface MbValidation {
   preview?: MbPreviewRow[]
 }
 
+interface FilterStep {
+  name: string
+  scanned: number
+  kept: number
+  removed: number
+  removed_pct: number
+  threshold: string
+  note?: string
+}
+
 interface StartResult {
   queued_count: number
   filtered_count: number
+  filters: FilterStep[]
   filter_breakdown: {
     total_scanned: number
     cot_low: number
@@ -1103,6 +1114,7 @@ export default function ValidationPage() {
     sample_interval_hrs:     '1',
     recalibration_threshold: '2.0',
   })
+  const [cotThreshold,  setCotThreshold]  = useState('780')
   const [mbFormula,     setMbFormula]     = useState('mass_balance_error_pct')
   const [mbCustomPct,   setMbCustomPct]   = useState('')
   const [mbValidation,  setMbValidation]  = useState<MbValidation | null>(null)
@@ -1215,6 +1227,7 @@ export default function ValidationPage() {
           mb_filter_pct:       mbFilterPct,
           mb_formula:          mbFormula.trim() || 'mass_balance_error_pct',
           sample_interval_hrs: Number(form.sample_interval_hrs),
+          cot_threshold_degc:  Number(cotThreshold) || 780,
           validation_mode:     activeTab,
           tuning_params:       tuningParams,
         }),
@@ -1285,6 +1298,7 @@ export default function ValidationPage() {
     setPlantHasFound(false)
     setTuningResults({})
     setDriftData(null)
+    setCotThreshold('780')
   }
 
   const f = (k: keyof SetupForm, v: string) => setForm(prev => ({ ...prev, [k]: v }))
@@ -1422,6 +1436,23 @@ export default function ValidationPage() {
           )}
 
           {activeTab === 'operating' && <div className="col-span-2 space-y-3">
+            {/* COT filter threshold */}
+            <div>
+              <label className={lbl}>COT Filter Threshold</label>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">Drop rows where COT &lt;</span>
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  value={cotThreshold}
+                  onChange={e => setCotThreshold(e.target.value)}
+                  disabled={phase === 'running'}
+                  className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:bg-gray-50"
+                />
+                <span className="text-xs text-gray-500">°C (plugged-tube indicator)</span>
+              </div>
+            </div>
             <label className={lbl}>Mass Balance Filter</label>
 
             {/* Formula textarea */}
@@ -1618,29 +1649,49 @@ export default function ValidationPage() {
           {startResult && (
             <div className="rounded-lg border border-gray-100 overflow-hidden">
               <table className="w-full text-xs">
-                <thead className="bg-gray-50 text-gray-500 uppercase tracking-wider">
+                <thead className="bg-gray-50 text-gray-500 uppercase tracking-wider text-[10px]">
                   <tr>
-                    {['Total scanned','COT < 780°C','Mass balance','Composition stale','Queued'].map(h => (
-                      <th key={h} className="px-4 py-2 text-right first:text-left">{h}</th>
-                    ))}
+                    <th className="px-4 py-2 text-left font-semibold">Filter step</th>
+                    <th className="px-4 py-2 text-right font-semibold">Scanned</th>
+                    <th className="px-4 py-2 text-right font-semibold">Removed</th>
+                    <th className="px-4 py-2 text-right font-semibold">% kept</th>
+                    <th className="px-4 py-2 text-left font-semibold">Threshold</th>
                   </tr>
                 </thead>
-                <tbody>
-                  <tr className="border-t border-gray-100">
-                    {[
-                      startResult.filter_breakdown.total_scanned,
-                      startResult.filter_breakdown.cot_low,
-                      startResult.filter_breakdown.mass_balance,
-                      startResult.filter_breakdown.composition_stale,
-                      startResult.filter_breakdown.queued,
-                    ].map((v, i) => (
-                      <td key={i} className={`px-4 py-2.5 font-medium tabular-nums ${i === 0 ? '' : i === 4 ? 'text-right text-emerald-700' : 'text-right text-gray-500'}`}>
-                        {v}
-                      </td>
-                    ))}
+                <tbody className="divide-y divide-gray-50">
+                  {(startResult.filters ?? []).map((f, i) => {
+                    const keptPct = f.scanned > 0 ? ((f.kept / f.scanned) * 100) : 100
+                    const cls = keptPct >= 80 ? 'text-emerald-700' : keptPct >= 50 ? 'text-amber-600' : 'text-red-600'
+                    return (
+                      <tr key={i}>
+                        <td className="px-4 py-2.5 font-medium text-gray-700">
+                          {f.name}
+                          {f.note && <span className="ml-1.5 text-[10px] text-gray-400">({f.note})</span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-gray-500">{f.scanned}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-gray-500">
+                          {f.removed > 0 ? `−${f.removed} (${f.removed_pct}%)` : '—'}
+                        </td>
+                        <td className={`px-4 py-2.5 text-right tabular-nums font-semibold ${cls}`}>
+                          {f.kept} <span className="font-normal text-gray-400">({keptPct.toFixed(0)}%)</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-400 text-[10px]">{f.threshold}</td>
+                      </tr>
+                    )
+                  })}
+                  <tr className="bg-emerald-50/50 border-t border-emerald-100">
+                    <td className="px-4 py-2.5 font-semibold text-emerald-800">Queued for simulation</td>
+                    <td colSpan={2} />
+                    <td className="px-4 py-2.5 text-right font-bold text-emerald-700 tabular-nums">{startResult.queued_count}</td>
+                    <td />
                   </tr>
                 </tbody>
               </table>
+              {startResult.filters?.some(f => f.scanned > 0 && (f.kept / f.scanned) < 0.5 && f.removed > 0) && (
+                <p className="px-4 py-2 text-[10px] text-red-600 bg-red-50 border-t border-red-100">
+                  ⚠ One or more filters removed more than half the data — check threshold settings.
+                </p>
+              )}
             </div>
           )}
 

@@ -172,11 +172,25 @@ export async function POST(req: NextRequest) {
           [JSON.stringify(updatedTuningParams), design_case_id]
         )
       } else {
-        // Legacy single-axis COT bias fit
+        // Step search: 0.5°C coarse over ±30°C, then 0.1°C fine ±1°C around best
         const gapWtPct = errorFraction * avgC2H4Yield
-        recommendedCotBias  = Math.round((gapWtPct / SENSITIVITY.cot_bias) * 10) / 10
-        const residual = errorFraction - (recommendedCotBias * SENSITIVITY.cot_bias / avgC2H4Yield)
-        c2h4ErrorAfterBias  = parseFloat((residual * 100).toFixed(2))
+        const COARSE = 0.5, FINE = 0.1, LIMIT = 30.0
+        let bestBias = 0
+        let bestGap  = Math.abs(gapWtPct)
+
+        for (let b = -LIMIT; b <= LIMIT + 1e-9; b = Math.round((b + COARSE) * 1e6) / 1e6) {
+          const gap = Math.abs(gapWtPct - SENSITIVITY.cot_bias * b)
+          if (gap < bestGap) { bestGap = gap; bestBias = b }
+        }
+        const fineMin = bestBias - 1.0, fineMax = bestBias + 1.0
+        for (let b = fineMin; b <= fineMax + 1e-9; b = Math.round((b + FINE) * 1e6) / 1e6) {
+          const gap = Math.abs(gapWtPct - SENSITIVITY.cot_bias * b)
+          if (gap < bestGap) { bestGap = gap; bestBias = b }
+        }
+
+        recommendedCotBias = Math.round(bestBias * 10) / 10
+        const residualWtPct = gapWtPct - SENSITIVITY.cot_bias * recommendedCotBias
+        c2h4ErrorAfterBias  = parseFloat(((residualWtPct / avgC2H4Yield) * 100).toFixed(2))
         tuningResults = { cot_bias: { result: recommendedCotBias, sensitivity_used: SENSITIVITY.cot_bias } }
       }
     }

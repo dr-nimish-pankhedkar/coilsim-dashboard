@@ -3,12 +3,14 @@ import { pool } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
-interface FilterBreakdown {
-  total_scanned: number
-  cot_low: number
-  mass_balance: number
-  stale_composition: number
-  queued: number
+interface FilterStep {
+  name: string
+  scanned: number
+  kept: number
+  removed: number
+  removed_pct: number
+  threshold: string
+  note?: string
 }
 
 const MB_SQL_KEYWORDS =
@@ -41,6 +43,7 @@ export async function POST(req: NextRequest) {
       sample_interval_hrs = 1,
       validation_mode = 'design',
       tuning_params = null,
+      cot_threshold_degc = 780,
     } = body
 
     if (!design_case_id || !start_date || !end_date) {
@@ -141,13 +144,12 @@ export async function POST(req: NextRequest) {
     `, [start_date, end_date, mb_filter_pct, sample_interval_hrs, STALE_COMPOSITION_DAYS])
 
     const rows = histRes.rows
-    const breakdown: FilterBreakdown = {
-      total_scanned: rows.length,
-      cot_low: 0,
-      mass_balance: 0,
-      stale_composition: 0,
-      queued: 0,
-    }
+    const cotThreshold = Number(cot_threshold_degc) || 780
+    let afterSampling = rows.length
+    let cotRemoved = 0
+    let mbRemoved = 0
+    let staleRemoved = 0
+    let queued = 0
 
     // Queue validation runs for each surviving data point.
     // Read plant data config for this design case (tag mapping for resolving plant C2H4)
@@ -229,9 +231,9 @@ export async function POST(req: NextRequest) {
     for (const row of rows) {
       const cotDcs = parseFloat(row.cot_input)
 
-      // Phase 1 filter: COT < 780 → plugged tube indicator
-      if (cotDcs < 780) {
-        breakdown.cot_low++
+      // Phase 1 filter: COT below threshold → plugged tube indicator
+      if (cotDcs < cotThreshold) {
+        cotRemoved++
         continue
       }
 
@@ -240,14 +242,14 @@ export async function POST(req: NextRequest) {
         const hourEpoch = Math.floor(new Date(row.created_at).getTime() / 3_600_000) * 3_600_000
         const mbVal = mbFilterMap.get(hourEpoch)
         if (mbVal != null && Math.abs(mbVal) > mb_filter_pct) {
-          breakdown.mass_balance++
+          mbRemoved++
           continue
         }
       }
 
       // Phase 3 filter: stale composition
       if (row.composition_stale) {
-        breakdown.stale_composition++
+        staleRemoved++
         continue
       }
 
@@ -296,26 +298,71 @@ export async function POST(req: NextRequest) {
         validationResultId,
       ])
 
-      breakdown.queued++
+      queued++
     }
 
     // Store total queued count on the design case
     await client.query(
       'UPDATE cs_py_int.design_cases SET validation_runs_total = $1 WHERE id = $2',
-      [breakdown.queued, design_case_id]
+      [queued, design_case_id]
     )
 
     await client.query('COMMIT')
 
+    const afterCot   = afterSampling - cotRemoved
+    const afterMb    = afterCot      - mbRemoved
+    const afterStale = afterMb       - staleRemoved
+
+    const pct = (removed: number, scanned: number) =>
+      scanned > 0 ? parseFloat(((removed / scanned) * 100).toFixed(1)) : 0
+
+    const filters: FilterStep[] = [
+      {
+        name:        `Sample interval (${sample_interval_hrs}h)`,
+        scanned:     afterSampling,
+        kept:        afterSampling,
+        removed:     0,
+        removed_pct: 0,
+        threshold:   `1 per ${sample_interval_hrs}h bucket`,
+      },
+      {
+        name:        `COT < ${cotThreshold}°C`,
+        scanned:     afterSampling,
+        kept:        afterCot,
+        removed:     cotRemoved,
+        removed_pct: pct(cotRemoved, afterSampling),
+        threshold:   `${cotThreshold}°C`,
+      },
+      {
+        name:        `Mass balance error > ±${mb_filter_pct}%`,
+        scanned:     afterCot,
+        kept:        afterMb,
+        removed:     mbRemoved,
+        removed_pct: pct(mbRemoved, afterCot),
+        threshold:   `±${mb_filter_pct}%`,
+        note:        mbFilterMap.size === 0 ? 'No reference data — filter skipped' : undefined,
+      },
+      {
+        name:        'Stale composition (>7 days unchanged)',
+        scanned:     afterMb,
+        kept:        afterStale,
+        removed:     staleRemoved,
+        removed_pct: pct(staleRemoved, afterMb),
+        threshold:   '7 days',
+      },
+    ]
+
     return NextResponse.json({
-      queued_count:     breakdown.queued,
-      filtered_count:   breakdown.total_scanned - breakdown.queued,
+      queued_count:   queued,
+      filtered_count: afterSampling - queued,
+      filters,
+      // legacy shape kept for any code still reading it
       filter_breakdown: {
-        total_scanned:     breakdown.total_scanned,
-        cot_low:           breakdown.cot_low,
-        mass_balance:      breakdown.mass_balance,
-        composition_stale: breakdown.stale_composition,
-        queued:            breakdown.queued,
+        total_scanned:     afterSampling,
+        cot_low:           cotRemoved,
+        mass_balance:      mbRemoved,
+        composition_stale: staleRemoved,
+        queued,
       },
     })
   } catch (err: any) {
