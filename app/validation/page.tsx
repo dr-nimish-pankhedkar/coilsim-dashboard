@@ -1104,7 +1104,7 @@ function TuningParamsCard({
 export default function ValidationPage() {
   const today = new Date().toISOString().slice(0, 10)
   const d90   = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10)
-  const d30   = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)
+  const d60   = new Date(Date.now() - 60 * 86_400_000).toISOString().slice(0, 10)
 
   const [activeTab, setActiveTab] = useState<ValidationTab>('design')
   const [tuningParams, setTuningParams] = useState<TuningParams>(TUNING_DEFAULTS)
@@ -1348,7 +1348,7 @@ export default function ValidationPage() {
                 setActiveTab(tab.key)
                 setForm(f => ({
                   ...f,
-                  start_date: tab.key === 'operating' ? d30 : d90,
+                  start_date: tab.key === 'operating' ? d60 : d90,
                   end_date:   today,
                 }))
               }}
