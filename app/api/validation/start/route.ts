@@ -177,11 +177,20 @@ export async function POST(req: NextRequest) {
       return value  // kg/hr already
     }
 
-    // Helper: fetch closest plant C2H4 value from hourly_data for a given timestamp
+    // VRD columns that can be used directly as plant yield tags
+    const VRD_COLUMNS = new Set([
+      'plant_c2h4_mt_hr', 'plant_h2_ch4_mt_hr', 'plant_c2h6_mt_hr',
+      'plant_c3plus_mt_hr', 'total_hc_flow_mt_hr', 'recycle_ethane_mt_hr',
+      'feed_from_aramco_mt_hr',
+    ])
+
+    // Helper: fetch closest plant C2H4 value for a given timestamp.
+    // Checks hourly_data first, then validation_reference_data if tag is a known VRD column.
     async function resolvePlantC2H4(ts: string, hcFlow: number): Promise<number | null> {
       const tagInfo = plantTagMap.get('header') ?? plantTagMap.get('furnace_1') ?? null
       if (!tagInfo) return null
       try {
+        // 1. hourly_data (historian tags)
         const r = await client.query(`
           SELECT value FROM cs_py_int.hourly_data
           WHERE tag_name = $1
@@ -190,10 +199,26 @@ export async function POST(req: NextRequest) {
           ORDER BY ABS(EXTRACT(EPOCH FROM (timestamp - $2::timestamptz)))
           LIMIT 1
         `, [tagInfo.tag, ts])
-        if (!r.rows.length) return null
-        return toKgHr(parseFloat(r.rows[0].value), tagInfo.unit, hcFlow)
+        if (r.rows.length) return toKgHr(parseFloat(r.rows[0].value), tagInfo.unit, hcFlow)
+
+        // 2. validation_reference_data fallback for known VRD columns
+        if (VRD_COLUMNS.has(tagInfo.tag)) {
+          const vr = await client.query(`
+            SELECT "${tagInfo.tag}"::numeric AS value
+            FROM cs_py_int.validation_reference_data
+            WHERE "${tagInfo.tag}" IS NOT NULL
+              AND timestamp BETWEEN $1::timestamptz - INTERVAL '30 minutes'
+                                AND $1::timestamptz + INTERVAL '30 minutes'
+            ORDER BY ABS(EXTRACT(EPOCH FROM (timestamp - $1::timestamptz)))
+            LIMIT 1
+          `, [ts])
+          if (vr.rows.length && vr.rows[0].value != null) {
+            return toKgHr(parseFloat(vr.rows[0].value), tagInfo.unit, hcFlow)
+          }
+        }
+        return null
       } catch {
-        return null  // hourly_data unavailable or schema mismatch
+        return null
       }
     }
 
