@@ -779,6 +779,7 @@ function PlantDataConfig({
   const [energyOpen, setEnergyOpen] = useState(false)
   const [saving,     setSaving]     = useState(false)
   const [saveOk,     setSaveOk]     = useState(false)
+  const [hasSaved,   setHasSaved]   = useState(false)
   const [saveErr,    setSaveErr]    = useState('')
   const loaded = useRef<number | null>(null)
   const prevNotify = useRef({ saved: false, hasFound: false })
@@ -804,21 +805,24 @@ function PlantDataConfig({
         return v ? { ...r, status: v.exists ? 'found' : 'not_found', sample_value: v.sample_value, last_seen: v.last_seen, source: v.source } : r
       }))
       setSaveOk(cfg.tags.length > 0)
+      if (cfg.tags.length > 0) setHasSaved(true)
     }
   }, [cfg, designCaseId])
 
   // Reset when design case changes
   useEffect(() => {
     loaded.current = null
-    setMode(null); setTags([]); setSaveOk(false); setSaveErr('')
+    setMode(null); setTags([]); setSaveOk(false); setHasSaved(false); setSaveErr('')
   }, [designCaseId])
 
-  // Notify parent — guarded by ref to avoid infinite loops
+  // Notify parent — guarded by ref to avoid infinite loops.
+  // Use hasSaved (persistent) not saveOk (resets after 3s) so the Start button
+  // stays enabled after the success tick clears.
   useEffect(() => {
     const hasFound = tags.some(t => t.status === 'found')
-    if (prevNotify.current.saved !== saveOk || prevNotify.current.hasFound !== hasFound) {
-      prevNotify.current = { saved: saveOk, hasFound }
-      onConfigChange(saveOk, hasFound)
+    if (prevNotify.current.saved !== hasSaved || prevNotify.current.hasFound !== hasFound) {
+      prevNotify.current = { saved: hasSaved, hasFound }
+      onConfigChange(hasSaved, hasFound)
     }
   })
 
@@ -863,6 +867,7 @@ function PlantDataConfig({
       const json = await res.json()
       if (!res.ok) { setSaveErr(json.error ?? 'Save failed'); return }
       setSaveOk(true)
+      setHasSaved(true)
       setTimeout(() => setSaveOk(false), 3000)
     } finally {
       setSaving(false)
