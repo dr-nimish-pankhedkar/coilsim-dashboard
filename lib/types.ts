@@ -164,6 +164,7 @@ export interface ValidationStatusResponse {
   runs_total: number
   runs_complete: number
   runs_failed: number
+  runs_not_converged: number
   pct_complete: number
   months: Array<{
     month: string

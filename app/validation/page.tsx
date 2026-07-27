@@ -1132,6 +1132,8 @@ export default function ValidationPage() {
   const [pollData,    setPollData]    = useState<ValidationStatusResponse | null>(null)
   const [biasReport,  setBiasReport]  = useState<ValidationBiasReport | null>(null)
   const [promoted,    setPromoted]    = useState<PromoteResult | null>(null)
+  const [applyBias,        setApplyBias]        = useState(false)
+  const [busyApplyBias,    setBusyApplyBias]    = useState(false)
   const [busyStart,        setBusyStart]        = useState(false)
   const [busyBias,         setBusyBias]         = useState(false)
   const [busyPromote,      setBusyPromote]      = useState(false)
@@ -1276,6 +1278,21 @@ export default function ValidationPage() {
     }
   }
 
+  async function handleToggleApplyBias(next: boolean) {
+    if (!activeDcId) return
+    setBusyApplyBias(true)
+    try {
+      await fetch('/api/validation/apply-bias', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ design_case_id: activeDcId, apply: next }),
+      })
+      setApplyBias(next)
+    } finally {
+      setBusyApplyBias(false)
+    }
+  }
+
   async function handlePromote() {
     if (!activeDcId) return
     setBusyPromote(true)
@@ -1297,6 +1314,7 @@ export default function ValidationPage() {
   function handleRetry() {
     setPhase('setup')
     setBiasReport(null)
+    setApplyBias(false)
     setStartResult(null)
     setPollData(null)
     setPlantConfigSaved(false)
@@ -1719,6 +1737,9 @@ export default function ValidationPage() {
                 {pollData.runs_failed > 0 && (
                   <span className="text-amber-600"> · {pollData.runs_failed} failed</span>
                 )}
+                {pollData.runs_not_converged > 0 && (
+                  <span className="text-orange-500"> · {pollData.runs_not_converged} did not converge (skipped)</span>
+                )}
               </p>
 
               {/* Live monthly preview */}
@@ -1898,6 +1919,39 @@ export default function ValidationPage() {
                     </p>
                   )}
                 </div>
+
+                {/* Apply bias toggle — shown once bias is computed */}
+                {biasReport?.recommended_cot_bias != null && (
+                  <div className={`rounded-xl border px-5 py-4 flex items-center justify-between gap-4 ${
+                    applyBias
+                      ? 'border-emerald-300 bg-emerald-50'
+                      : 'border-gray-200 bg-white'
+                  }`}>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">
+                        Apply bias to live hourly runs
+                      </p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">
+                        {applyBias
+                          ? `COT bias of ${biasReport.recommended_cot_bias >= 0 ? '+' : ''}${biasReport.recommended_cot_bias.toFixed(1)} °C is being added to every DCS COT before CoilSim runs.`
+                          : 'Bias is computed but not yet applied — enable to shift all live runs by the recommended COT offset.'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleToggleApplyBias(!applyBias)}
+                      disabled={busyApplyBias}
+                      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
+                        applyBias ? 'bg-emerald-500' : 'bg-gray-300'
+                      }`}
+                      role="switch"
+                      aria-checked={applyBias}
+                    >
+                      <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        applyBias ? 'translate-x-5' : 'translate-x-0'
+                      }`} />
+                    </button>
+                  </div>
+                )}
 
                 {/* Drift panel — operating mode only */}
                 {activeTab === 'operating' && driftData && (
