@@ -189,7 +189,8 @@ export async function GET(req: NextRequest) {
     const res = await client.query(`
       SELECT id, status, n_samples, n_sims_total, n_sims_complete, regression_type,
              objective, param_ranges, optimal_params, predicted_yield, current_yield,
-             yield_improvement_pct, regression_metrics, created_at, completed_at
+             yield_improvement_pct, regression_metrics, regression_coefficients,
+             sensitivity_json, created_at, completed_at
       FROM cs_py_int.optimization_runs
       WHERE design_case_id = $1
       ORDER BY id DESC

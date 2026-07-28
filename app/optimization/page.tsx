@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import useSWR from 'swr'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
@@ -23,6 +23,7 @@ interface OptRun {
   current_yield: number | null
   yield_improvement_pct: number | null
   sensitivity_json: Record<string, { x: number; y: number }[]> | null
+  regression_coefficients: number[] | null
   param_ranges: ParamRanges
   created_at: string
 }
@@ -431,6 +432,11 @@ export default function OptimizationPage() {
               </div>
             )}
 
+            {/* What-If Explorer */}
+            {isComplete && displayRun.regression_coefficients && (
+              <WhatIfExplorer run={displayRun} isUploaded={isUploaded} />
+            )}
+
             {/* Run history */}
             {runs.length > 1 && (
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
@@ -462,6 +468,224 @@ export default function OptimizationPage() {
             )}
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ── Surrogate math helpers (mirrored from fit route) ────────────────────────
+function polyFeatures(x1: number, x2: number, x3: number): number[] {
+  return [1, x1, x2, x3, x1*x1, x2*x2, x3*x3, x1*x2, x1*x3, x2*x3]
+}
+function dotProd(a: number[], b: number[]): number {
+  return a.reduce((s, v, i) => s + v * b[i], 0)
+}
+function normVal(v: number, lo: number, hi: number): number {
+  return hi > lo ? (2 * (v - lo) / (hi - lo)) - 1 : 0
+}
+function surrogatePredict(beta: number[], pr: ParamRanges, cot: number, flow: number, shc: number): number {
+  return dotProd(polyFeatures(
+    normVal(cot,  pr.cot.min,  pr.cot.max),
+    normVal(flow, pr.flow.min, pr.flow.max),
+    normVal(shc,  pr.shc.min,  pr.shc.max),
+  ), beta)
+}
+
+// Yield heatmap: flow (x-axis) × SHC (y-axis), COT fixed
+function FlowShcHeatmap({ beta, pr, cotFixed, crosshair }: {
+  beta: number[]
+  pr: ParamRanges
+  cotFixed: number
+  crosshair: { flow: number; shc: number }
+}) {
+  const N = 40
+  const W = 340, H = 180
+
+  const cells = useMemo(() => {
+    const arr: { fi: number; si: number; t: number }[] = []
+    let yMin = Infinity, yMax = -Infinity
+    const yields: number[] = []
+    for (let fi = 0; fi < N; fi++) {
+      for (let si = 0; si < N; si++) {
+        const flow = pr.flow.min + (fi / (N - 1)) * (pr.flow.max - pr.flow.min)
+        const shc  = pr.shc.min  + (si / (N - 1)) * (pr.shc.max  - pr.shc.min)
+        const y = surrogatePredict(beta, pr, cotFixed, flow, shc)
+        yields.push(y)
+        if (y < yMin) yMin = y
+        if (y > yMax) yMax = y
+      }
+    }
+    const span = yMax - yMin || 1
+    for (let i = 0; i < yields.length; i++) {
+      const fi = Math.floor(i / N)
+      const si = i % N
+      arr.push({ fi, si, t: (yields[i] - yMin) / span })
+    }
+    return { arr, yMin, yMax }
+  }, [beta, pr, cotFixed])
+
+  const cellW = W / N
+  const cellH = H / N
+
+  // Map value t ∈ [0,1] to a blue→teal→yellow heatmap
+  const heatColor = (t: number) => {
+    const r = t < 0.5 ? Math.round(t * 2 * 30)  : Math.round(30  + (t - 0.5) * 2 * 225)
+    const g = Math.round(80 + t * 175)
+    const b = t < 0.5 ? Math.round(180 - t * 2 * 100) : Math.round(80 - (t - 0.5) * 2 * 80)
+    return `rgb(${r},${g},${b})`
+  }
+
+  const chX = ((crosshair.flow - pr.flow.min) / (pr.flow.max - pr.flow.min || 1)) * W
+  const chY = H - ((crosshair.shc  - pr.shc.min)  / (pr.shc.max  - pr.shc.min  || 1)) * H
+
+  return (
+    <div>
+      <svg width={W} height={H} style={{ display: 'block', borderRadius: 8, overflow: 'hidden' }}>
+        {cells.arr.map(c => (
+          <rect
+            key={`${c.fi}-${c.si}`}
+            x={c.fi * cellW}
+            y={H - (c.si + 1) * cellH}
+            width={cellW + 0.5}
+            height={cellH + 0.5}
+            fill={heatColor(c.t)}
+          />
+        ))}
+        {/* Crosshair */}
+        <line x1={chX} y1={0} x2={chX} y2={H} stroke="white" strokeWidth={1.5} strokeDasharray="4,3" opacity={0.9} />
+        <line x1={0} y1={chY} x2={W} y2={chY} stroke="white" strokeWidth={1.5} strokeDasharray="4,3" opacity={0.9} />
+        <circle cx={chX} cy={chY} r={5} fill="white" stroke="#1d4ed8" strokeWidth={2} />
+        {/* Axis labels */}
+        <text x={4} y={H - 4} fontSize={9} fill="white" opacity={0.85}>{pr.flow.min.toFixed(0)}</text>
+        <text x={W - 4} y={H - 4} fontSize={9} fill="white" opacity={0.85} textAnchor="end">{pr.flow.max.toFixed(0)}</text>
+        <text x={4} y={10} fontSize={9} fill="white" opacity={0.85}>SHC {pr.shc.max.toFixed(3)}</text>
+        <text x={4} y={H - 14} fontSize={9} fill="white" opacity={0.85}>SHC {pr.shc.min.toFixed(3)}</text>
+        <text x={W / 2} y={H - 4} fontSize={9} fill="white" opacity={0.85} textAnchor="middle">HC Flow (kg/h) →</text>
+      </svg>
+      <div className="flex justify-between text-[10px] text-gray-400 mt-1" style={{ width: W }}>
+        <span>Low yield</span>
+        <span>High yield</span>
+      </div>
+    </div>
+  )
+}
+
+function WhatIfExplorer({ run, isUploaded }: { run: OptRun; isUploaded: boolean }) {
+  const beta = run.regression_coefficients
+  const pr   = run.param_ranges
+  if (!beta || beta.length !== 10) return null
+
+  const [vals, setVals] = useState({
+    cot:  pr.cot.current,
+    flow: pr.flow.current,
+    shc:  pr.shc.current,
+  })
+
+  const currentYield = run.current_yield ?? surrogatePredict(beta, pr, pr.cot.current, pr.flow.current, pr.shc.current)
+  const whatIfYield  = surrogatePredict(beta, pr, vals.cot, vals.flow, vals.shc)
+  const delta = whatIfYield - currentYield
+
+  const sliderParams = (isUploaded ? ['flow', 'shc'] : ['cot', 'flow', 'shc']) as (keyof typeof vals)[]
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <h2 className="text-sm font-semibold text-gray-700">What-If Explorer</h2>
+      </div>
+      <p className="text-xs text-gray-400 mb-5">Drag sliders to explore any operating point — yield is predicted instantly from the fitted surrogate, no new simulations needed.</p>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+        {/* Sliders */}
+        <div className="space-y-5">
+          {sliderParams.map(p => {
+            const info  = PARAM_LABELS[p]
+            const range = pr[p]
+            return (
+              <div key={p}>
+                <div className="flex justify-between items-baseline mb-1">
+                  <span className="text-xs font-medium text-gray-700">
+                    {info.label}{info.unit && <span className="text-gray-400 ml-1">({info.unit})</span>}
+                  </span>
+                  <span className="text-sm font-mono font-semibold text-blue-700">
+                    {vals[p].toFixed(info.decimals)}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={range.min}
+                  max={range.max}
+                  step={p === 'shc' ? 0.001 : p === 'flow' ? 1 : 0.5}
+                  value={vals[p]}
+                  onChange={e => setVals(v => ({ ...v, [p]: parseFloat(e.target.value) }))}
+                  className="w-full accent-blue-500"
+                />
+                <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
+                  <span>{range.min.toFixed(info.decimals)}</span>
+                  <span className="text-gray-300">current: {range.current.toFixed(info.decimals)}</span>
+                  <span>{range.max.toFixed(info.decimals)}</span>
+                </div>
+              </div>
+            )
+          })}
+
+          <div className="flex gap-3 pt-1">
+            <button
+              onClick={() => setVals({ cot: pr.cot.current, flow: pr.flow.current, shc: pr.shc.current })}
+              className="text-xs text-gray-400 hover:text-gray-600 underline"
+            >
+              Reset to current
+            </button>
+            {run.optimal_params && (
+              <button
+                onClick={() => setVals({
+                  cot:  run.optimal_params!.cot,
+                  flow: run.optimal_params!.flow,
+                  shc:  run.optimal_params!.shc,
+                })}
+                className="text-xs text-blue-500 hover:text-blue-700 underline"
+              >
+                Jump to optimal
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Yield readout */}
+        <div className="flex flex-col items-center justify-center bg-gray-50 rounded-xl p-6 text-center">
+          <div className="text-[10px] text-gray-400 uppercase tracking-widest mb-3">Predicted C₂H₄ Yield</div>
+          <div className="text-5xl font-bold text-gray-900 tabular-nums leading-none">
+            {whatIfYield.toFixed(3)}
+          </div>
+          <div className="text-base text-gray-400 mt-1">wt%</div>
+          <div className={`mt-4 text-base font-semibold ${delta > 0.0005 ? 'text-green-600' : delta < -0.0005 ? 'text-red-500' : 'text-gray-400'}`}>
+            {delta > 0.0005 ? '▲' : delta < -0.0005 ? '▼' : '='}{' '}
+            {delta >= 0 ? '+' : ''}{delta.toFixed(3)} wt%
+          </div>
+          <div className="text-[10px] text-gray-400 mt-0.5">vs current ({currentYield.toFixed(3)} wt%)</div>
+          {Math.abs(delta) > 0.0005 && currentYield > 0 && (
+            <div className={`text-xs mt-2 font-medium ${delta > 0 ? 'text-green-600' : 'text-red-500'}`}>
+              {delta > 0 ? '+' : ''}{((delta / currentYield) * 100).toFixed(2)}% relative
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Flow × SHC heatmap */}
+      <div className="mt-6">
+        <div className="text-xs font-medium text-gray-600 mb-2">
+          HC Flow × SHC yield surface
+          {!isUploaded && <span className="text-gray-400 ml-1">(COT fixed at {vals.cot.toFixed(1)} °C)</span>}
+          <span className="text-gray-400 ml-1">— white dot = current slider position</span>
+        </div>
+        <FlowShcHeatmap
+          beta={beta}
+          pr={pr}
+          cotFixed={vals.cot}
+          crosshair={{ flow: vals.flow, shc: vals.shc }}
+        />
       </div>
     </div>
   )
