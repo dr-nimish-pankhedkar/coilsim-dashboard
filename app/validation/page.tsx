@@ -1752,8 +1752,14 @@ export default function ValidationPage() {
       </Section>
 
       {/* ── Section 2: Progress ───────────────────────────────────────────────── */}
-      {(phase === 'running' || (phase === 'results' && startResult)) && (
-        <Section title="2 — Progress" sub="CoilSim is processing historical DCS data points. This page auto-updates every 10 seconds.">
+      <div className={phase === 'setup' ? 'opacity-40 pointer-events-none select-none' : ''}>
+        <Section
+          title="2 — Progress"
+          sub={phase === 'setup' ? 'Starts automatically once you click Start Validation above.' : 'CoilSim is processing historical DCS data points. This page auto-updates every 10 seconds.'}
+        >
+        {phase === 'setup' ? (
+          <p className="text-xs text-gray-400 italic">Simulation progress, filter statistics, and live monthly results will appear here once validation starts.</p>
+        ) : (<>
 
           {startResult && (
             <div className="rounded-lg border border-gray-100 overflow-hidden">
@@ -1860,13 +1866,17 @@ export default function ValidationPage() {
               )}
             </div>
           )}
+        </>)}
         </Section>
-      )}
+      </div>
 
       {/* ── Section 3: Results ────────────────────────────────────────────────── */}
-      {phase === 'results' && (
+      <div className={phase !== 'results' ? 'opacity-40 pointer-events-none select-none' : ''}>
         <>
-          <Section title="3 — Results" sub="Aggregated material and energy balance from all successful validation runs.">
+          <Section title="3 — Results" sub={phase !== 'results' ? 'Appears once all CoilSim validation runs complete.' : 'Aggregated material and energy balance from all successful validation runs.'}>
+          {phase !== 'results' ? (
+            <p className="text-xs text-gray-400 italic">Compute Bias &amp; Close Balance, calibration parameters, and full validation results will appear here.</p>
+          ) : (<>
 
             {/* 3a — Compute bias button */}
             {!biasReport && (
@@ -2308,10 +2318,10 @@ export default function ValidationPage() {
               )}
 
               {errMsg && <p className="text-sm text-red-500">{errMsg}</p>}
-            </Section>
-          )}
-        </>
-      )}
+            </>)}
+          </Section>
+          </>
+        </div>
 
       {/* ── Section 5: Post-Promotion ─────────────────────────────────────────── */}
       {phase === 'promoted' && promoted && (
