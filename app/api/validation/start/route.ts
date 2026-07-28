@@ -67,12 +67,16 @@ export async function POST(req: NextRequest) {
     // 1. If severity_dcs_tag is configured → try hourly_data per timestamp
     // 2. If not found or no tag → fall back to severity_nominal (fixed design value)
     // COT cases always use cot_input from simulation_tasks (already historian-resolved).
+    const isUploaded      = dc.source === 'uploaded_proj'
     const isCotSeverity   = !dc.severity_type_parsed || dc.severity_type_parsed === 'cot'
     const severityNominal = dc.severity_nominal != null ? parseFloat(dc.severity_nominal) : null
     const severityDcsTag  = dc.severity_dcs_tag as string | null
+    const flowDcsTag      = dc.flow_dcs_tag as string | null
+    const hcFlowNominal   = dc.case_params?.hc_flow_nominal != null
+                              ? parseFloat(dc.case_params.hc_flow_nominal) : null
 
-    async function resolveSeverity(ts: string): Promise<number | null> {
-      if (!severityDcsTag) return null
+    // Generic historian tag resolver — used for both severity and flow.
+    async function resolveTag(tag: string, ts: string): Promise<number | null> {
       try {
         const r = await client.query(`
           SELECT value FROM cs_py_int.hourly_data
@@ -81,11 +85,25 @@ export async function POST(req: NextRequest) {
                               AND $2::timestamptz + INTERVAL '30 minutes'
           ORDER BY ABS(EXTRACT(EPOCH FROM (timestamp - $2::timestamptz)))
           LIMIT 1
-        `, [severityDcsTag, ts])
+        `, [tag, ts])
         return r.rows.length ? parseFloat(r.rows[0].value) : null
       } catch {
         return null
       }
+    }
+
+    async function resolveSeverity(ts: string): Promise<number | null> {
+      return severityDcsTag ? resolveTag(severityDcsTag, ts) : null
+    }
+
+    async function resolveFlow(ts: string, fallback: number): Promise<number> {
+      if (flowDcsTag) {
+        const v = await resolveTag(flowDcsTag, ts)
+        if (v != null) return v
+      }
+      // Uploaded case with no tag → use fixed hc_flow_nominal from model
+      if (isUploaded && hcFlowNominal != null) return hcFlowNominal
+      return fallback
     }
 
     // Mark design case as running, clear old validation results.
@@ -303,7 +321,7 @@ export async function POST(req: NextRequest) {
         continue
       }
 
-      const flow = parseFloat(row.flow_input) || 1300
+      const flow = await resolveFlow(row.created_at, parseFloat(row.flow_input) || 1300)
       const dil  = parseFloat(row.dilution_ratio) || 0.35
       const cit  = parseFloat(row.cit_input) || 668
       const cip  = parseFloat(row.cip_input) || 2.59
@@ -417,6 +435,11 @@ export async function POST(req: NextRequest) {
         : severityDcsTag
           ? `historian tag: ${severityDcsTag} (fallback: nominal ${severityNominal})`
           : `fixed nominal ${severityNominal} (${dc.severity_type_parsed} — no DCS tag configured)`,
+      flow_source: flowDcsTag
+        ? `historian tag: ${flowDcsTag} (fallback: nominal ${hcFlowNominal ?? 'n/a'})`
+        : isUploaded && hcFlowNominal != null
+          ? `fixed nominal ${hcFlowNominal} kg/h (uploaded case — no flow tag configured)`
+          : 'historian flow from simulation_tasks',
       filters,
       // legacy shape kept for any code still reading it
       filter_breakdown: {
