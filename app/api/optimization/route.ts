@@ -205,7 +205,13 @@ export async function GET(req: NextRequest) {
       WHERE design_case_id = $1
       ORDER BY id DESC
     `, [design_case_id])
-    return NextResponse.json({ runs: res.rows })
+    const runs = res.rows.map(r => ({
+      ...r,
+      predicted_yield:       r.predicted_yield        != null ? parseFloat(r.predicted_yield)        : null,
+      current_yield:         r.current_yield          != null ? parseFloat(r.current_yield)          : null,
+      yield_improvement_pct: r.yield_improvement_pct  != null ? parseFloat(r.yield_improvement_pct)  : null,
+    }))
+    return NextResponse.json({ runs })
   } finally {
     client.release()
   }
