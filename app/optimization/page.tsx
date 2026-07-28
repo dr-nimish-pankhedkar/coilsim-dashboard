@@ -130,7 +130,7 @@ export default function OptimizationPage() {
   )
 
   useEffect(() => {
-    if (!dcsStats) return
+    if (!dcsStats || !dcsStats.cot_mean) return
     setRanges({
       cot:  { min: round(dcsStats.cot_mean  - 2 * dcsStats.cot_std,  1), max: round(dcsStats.cot_mean  + 2 * dcsStats.cot_std,  1), current: round(dcsStats.cot_mean,  1) },
       flow: { min: round(dcsStats.flow_mean - 2 * dcsStats.flow_std, 0), max: round(dcsStats.flow_mean + 2 * dcsStats.flow_std, 0), current: round(dcsStats.flow_mean, 0) },
