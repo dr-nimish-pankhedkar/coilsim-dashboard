@@ -77,72 +77,113 @@ export async function POST(
     const constraints = (run.constraint_json ?? run.param_ranges) as { cot: Range; flow: Range; shc: Range }
 
     // Normalise inputs to [-1,1] for numerical stability
-    const norm = (v: number, lo: number, hi: number) => (2 * (v - lo) / (hi - lo)) - 1
+    const norm = (v: number, lo: number, hi: number) => hi > lo ? (2 * (v - lo) / (hi - lo)) - 1 : 0
 
-    const Xraw = pts.map(p => makePolyFeatures(
-      norm(p.cot,  pr.cot.min,  pr.cot.max),
+    // For uploaded models COT is fixed — use 2D poly (flow+SHC only, 6 terms)
+    // to avoid a singular XᵀX. Beta is then padded to 10 terms (zeros for COT
+    // positions) so the frontend 10-term evaluator still works correctly.
+    const cotValues = pts.map(p => p.cot)
+    const cotIsFixed = cotValues.every(v => Math.abs(v - cotValues[0]) < 0.01) || !isFinite(cotValues[0])
+    const fixedCot = cotIsFixed ? (isFinite(cotValues[0]) ? cotValues[0] : pr.cot.current) : 0
+
+    let beta10: number[]
+
+    if (cotIsFixed) {
+      // 2D fit: features = [1, x_flow, x_shc, x_flow², x_shc², x_flow*x_shc]
+      const Xraw2d = pts.map(p => makePolyFeatures2D(
+        norm(p.flow, pr.flow.min, pr.flow.max),
+        norm(p.shc,  pr.shc.min,  pr.shc.max),
+      ))
+      const y = pts.map(p => p.y)
+      const beta2d = fitOLS(Xraw2d, y)
+      if (!beta2d) {
+        await client.query(`UPDATE cs_py_int.optimization_runs SET status='failed', error_message='Singular matrix — too few unique points' WHERE id=$1`, [runId])
+        return NextResponse.json({ error: 'Regression failed — singular matrix' }, { status: 422 })
+      }
+      // Expand to 10 terms: [b0, 0(cot), b1(flow), b2(shc), 0(cot²), b3(flow²), b4(shc²), 0(cot·flow), 0(cot·shc), b5(flow·shc)]
+      beta10 = [beta2d[0], 0, beta2d[1], beta2d[2], 0, beta2d[3], beta2d[4], 0, 0, beta2d[5]]
+    } else {
+      const Xraw = pts.map(p => makePolyFeatures(
+        norm(p.cot,  pr.cot.min,  pr.cot.max),
+        norm(p.flow, pr.flow.min, pr.flow.max),
+        norm(p.shc,  pr.shc.min,  pr.shc.max),
+      ))
+      const y = pts.map(p => p.y)
+      const b = fitOLS(Xraw, y)
+      if (!b) {
+        await client.query(`UPDATE cs_py_int.optimization_runs SET status='failed', error_message='Singular matrix — too few unique points' WHERE id=$1`, [runId])
+        return NextResponse.json({ error: 'Regression failed — singular matrix' }, { status: 422 })
+      }
+      beta10 = b
+    }
+
+    const beta = beta10
+    const Xall = pts.map(p => makePolyFeatures(
+      norm(cotIsFixed ? fixedCot : p.cot, pr.cot.min, pr.cot.max),
       norm(p.flow, pr.flow.min, pr.flow.max),
       norm(p.shc,  pr.shc.min,  pr.shc.max),
     ))
     const y = pts.map(p => p.y)
 
-    // Fit polynomial degree-2 via normal equations β = (XᵀX)⁻¹Xᵀy
-    const beta = fitOLS(Xraw, y)
-    if (!beta) {
-      await client.query(`UPDATE cs_py_int.optimization_runs SET status='failed', error_message='Singular matrix — too few unique points' WHERE id=$1`, [runId])
-      return NextResponse.json({ error: 'Regression failed — singular matrix' }, { status: 422 })
-    }
-
     // Compute R²
-    const yPred = Xraw.map(row => dot(row, beta))
+    const yPred = Xall.map(row => dot(row, beta))
     const yMean = mean(y)
     const ss_res = sum(y.map((yi, i) => (yi - yPred[i]) ** 2))
     const ss_tot = sum(y.map(yi => (yi - yMean) ** 2))
     const r2   = ss_tot > 0 ? 1 - ss_res / ss_tot : 0
     const rmse = Math.sqrt(ss_res / y.length)
 
-    // Grid search optimisation (25×25×25 = 15625 points)
+    // Grid search optimisation
     const GRID = 25
     let bestY = -Infinity
-    let bestParams = { cot: pr.cot.current, flow: pr.flow.current, shc: pr.shc.current }
+    let bestParams = { cot: fixedCot, flow: pr.flow.current, shc: pr.shc.current }
+    const cotGridMin = cotIsFixed ? fixedCot : constraints.cot.min
+    const cotGridMax = cotIsFixed ? fixedCot : constraints.cot.max
 
     for (let ic = 0; ic < GRID; ic++) {
       for (let if_ = 0; if_ < GRID; if_++) {
         for (let is = 0; is < GRID; is++) {
-          const cot  = constraints.cot.min  + (ic / (GRID - 1)) * (constraints.cot.max  - constraints.cot.min)
+          const cot  = cotGridMin + (ic / (GRID - 1)) * (cotGridMax - cotGridMin)
           const flow = constraints.flow.min + (if_ / (GRID - 1)) * (constraints.flow.max - constraints.flow.min)
           const shc  = constraints.shc.min  + (is / (GRID - 1)) * (constraints.shc.max  - constraints.shc.min)
           const feat = makePolyFeatures(norm(cot, pr.cot.min, pr.cot.max), norm(flow, pr.flow.min, pr.flow.max), norm(shc, pr.shc.min, pr.shc.max))
           const pred = dot(feat, beta)
-          if (pred > bestY) { bestY = pred; bestParams = { cot, flow, shc } }
+          if (isFinite(pred) && pred > bestY) { bestY = pred; bestParams = { cot, flow, shc } }
         }
       }
     }
 
+    if (!isFinite(bestY)) {
+      await client.query(`UPDATE cs_py_int.optimization_runs SET status='failed', error_message='Optimization produced no finite result' WHERE id=$1`, [runId])
+      return NextResponse.json({ error: 'Optimization produced no finite result' }, { status: 422 })
+    }
+
     // Current operating yield estimate
-    const currentFeat = makePolyFeatures(norm(pr.cot.current, pr.cot.min, pr.cot.max), norm(pr.flow.current, pr.flow.min, pr.flow.max), norm(pr.shc.current, pr.shc.min, pr.shc.max))
+    const currentFeat = makePolyFeatures(norm(cotIsFixed ? fixedCot : pr.cot.current, pr.cot.min, pr.cot.max), norm(pr.flow.current, pr.flow.min, pr.flow.max), norm(pr.shc.current, pr.shc.min, pr.shc.max))
     const currentYield = dot(currentFeat, beta)
 
     const improvement = currentYield > 0 ? ((bestY - currentYield) / currentYield) * 100 : null
 
     // Build sensitivity curves (±range, other params at current)
     const SENS_PTS = 40
-    const sensitivity = {
-      cot:  Array.from({ length: SENS_PTS }, (_, i) => {
-        const v = pr.cot.min  + (i / (SENS_PTS - 1)) * (pr.cot.max  - pr.cot.min)
-        const f = makePolyFeatures(norm(v, pr.cot.min, pr.cot.max), norm(pr.flow.current, pr.flow.min, pr.flow.max), norm(pr.shc.current, pr.shc.min, pr.shc.max))
-        return { x: round(v, 1), y: round(dot(f, beta), 4) }
-      }),
+    const sensitivity: Record<string, { x: number; y: number }[]> = {
       flow: Array.from({ length: SENS_PTS }, (_, i) => {
         const v = pr.flow.min + (i / (SENS_PTS - 1)) * (pr.flow.max - pr.flow.min)
-        const f = makePolyFeatures(norm(pr.cot.current, pr.cot.min, pr.cot.max), norm(v, pr.flow.min, pr.flow.max), norm(pr.shc.current, pr.shc.min, pr.shc.max))
+        const f = makePolyFeatures(norm(cotIsFixed ? fixedCot : pr.cot.current, pr.cot.min, pr.cot.max), norm(v, pr.flow.min, pr.flow.max), norm(pr.shc.current, pr.shc.min, pr.shc.max))
         return { x: round(v, 0), y: round(dot(f, beta), 4) }
       }),
       shc:  Array.from({ length: SENS_PTS }, (_, i) => {
         const v = pr.shc.min  + (i / (SENS_PTS - 1)) * (pr.shc.max  - pr.shc.min)
-        const f = makePolyFeatures(norm(pr.cot.current, pr.cot.min, pr.cot.max), norm(pr.flow.current, pr.flow.min, pr.flow.max), norm(v, pr.shc.min, pr.shc.max))
+        const f = makePolyFeatures(norm(cotIsFixed ? fixedCot : pr.cot.current, pr.cot.min, pr.cot.max), norm(pr.flow.current, pr.flow.min, pr.flow.max), norm(v, pr.shc.min, pr.shc.max))
         return { x: round(v, 3), y: round(dot(f, beta), 4) }
       }),
+    }
+    if (!cotIsFixed) {
+      sensitivity.cot = Array.from({ length: SENS_PTS }, (_, i) => {
+        const v = pr.cot.min  + (i / (SENS_PTS - 1)) * (pr.cot.max  - pr.cot.min)
+        const f = makePolyFeatures(norm(v, pr.cot.min, pr.cot.max), norm(pr.flow.current, pr.flow.min, pr.flow.max), norm(pr.shc.current, pr.shc.min, pr.shc.max))
+        return { x: round(v, 1), y: round(dot(f, beta), 4) }
+      })
     }
 
     // Persist results
@@ -194,6 +235,11 @@ type Range = { min: number; max: number; current: number }
 // [1, x1, x2, x3, x1², x2², x3², x1x2, x1x3, x2x3]
 function makePolyFeatures(x1: number, x2: number, x3: number): number[] {
   return [1, x1, x2, x3, x1*x1, x2*x2, x3*x3, x1*x2, x1*x3, x2*x3]
+}
+
+// 2D polynomial (flow + SHC only): 6 terms [1, x1, x2, x1², x2², x1x2]
+function makePolyFeatures2D(x1: number, x2: number): number[] {
+  return [1, x1, x2, x1*x1, x2*x2, x1*x2]
 }
 
 function dot(a: number[], b: number[]): number {
