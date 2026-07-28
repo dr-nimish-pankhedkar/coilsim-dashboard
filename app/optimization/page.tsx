@@ -174,10 +174,11 @@ export default function OptimizationPage() {
   }
 
   async function fitAndOptimize() {
-    if (!activeRunId) return
+    const runId = activeRunId ?? displayRun?.id
+    if (!runId) return
     setFitting(true); setError(null)
     try {
-      const res = await fetch(`/api/optimization/${activeRunId}`, { method: 'POST' })
+      const res = await fetch(`/api/optimization/${runId}`, { method: 'POST' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       mutateActive()
