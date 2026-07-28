@@ -63,12 +63,30 @@ export async function POST(req: NextRequest) {
     // sees only the residual operating gap vs plant data. Total = design + operating.
     const designBias = parseFloat(dc.design_cot_bias_degc ?? '0') || 0
 
-    // For uploaded cases with non-COT severity (e.g. ethane_conversion), no DCS severity
-    // tag exists — use the model's own severity_nominal as a fixed value for every row.
-    const isUploaded    = dc.source === 'uploaded_proj'
-    const isCotSeverity = !dc.severity_type_parsed || dc.severity_type_parsed === 'cot'
+    // Severity resolution for non-COT cases:
+    // 1. If severity_dcs_tag is configured → try hourly_data per timestamp
+    // 2. If not found or no tag → fall back to severity_nominal (fixed design value)
+    // COT cases always use cot_input from simulation_tasks (already historian-resolved).
+    const isCotSeverity   = !dc.severity_type_parsed || dc.severity_type_parsed === 'cot'
     const severityNominal = dc.severity_nominal != null ? parseFloat(dc.severity_nominal) : null
-    const useFixedNominal = isUploaded && !isCotSeverity && severityNominal != null
+    const severityDcsTag  = dc.severity_dcs_tag as string | null
+
+    async function resolveSeverity(ts: string): Promise<number | null> {
+      if (!severityDcsTag) return null
+      try {
+        const r = await client.query(`
+          SELECT value FROM cs_py_int.hourly_data
+          WHERE tag_name = $1
+            AND timestamp BETWEEN $2::timestamptz - INTERVAL '30 minutes'
+                              AND $2::timestamptz + INTERVAL '30 minutes'
+          ORDER BY ABS(EXTRACT(EPOCH FROM (timestamp - $2::timestamptz)))
+          LIMIT 1
+        `, [severityDcsTag, ts])
+        return r.rows.length ? parseFloat(r.rows[0].value) : null
+      } catch {
+        return null
+      }
+    }
 
     // Mark design case as running, clear old validation results.
     // cot_bias_degc is NOT set here — it is an output computed by /compute-bias after all runs complete.
@@ -294,10 +312,16 @@ export async function POST(req: NextRequest) {
       // Resolve plant C2H4 for this timestamp from hourly_data (null if tag not found)
       const plantC2H4KgHr = await resolvePlantC2H4(row.created_at, flow)
 
-      // Apply Stage 1 design bias to COT — worker runs at this shifted value.
-      // /compute-bias will then find only the residual operating gap vs plant data.
-      // For uploaded non-COT cases: use fixed severity_nominal (no DCS tag available).
-      const cotCoilsim = useFixedNominal ? severityNominal! : cotDcs + designBias
+      // Resolve severity value for the simulation task:
+      //   COT cases:     use cot_input from simulation_tasks + design bias (already historian-resolved)
+      //   Non-COT cases: try configured severity_dcs_tag from hourly_data → fall back to severity_nominal
+      let cotCoilsim: number
+      if (isCotSeverity) {
+        cotCoilsim = cotDcs + designBias
+      } else {
+        const dcsSeverity = await resolveSeverity(row.created_at)
+        cotCoilsim = dcsSeverity ?? severityNominal ?? cotDcs
+      }
 
       // 1. Pre-insert validation_results shell row
       const vrRes = await client.query(`
@@ -388,9 +412,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       queued_count:   queued,
       filtered_count: afterSampling - queued,
-      severity_source: useFixedNominal
-        ? `fixed nominal (${severityNominal} — no DCS tag for ${dc.severity_type_parsed})`
-        : 'historian COT tag',
+      severity_source: isCotSeverity
+        ? 'historian COT tag'
+        : severityDcsTag
+          ? `historian tag: ${severityDcsTag} (fallback: nominal ${severityNominal})`
+          : `fixed nominal ${severityNominal} (${dc.severity_type_parsed} — no DCS tag configured)`,
       filters,
       // legacy shape kept for any code still reading it
       filter_breakdown: {
