@@ -1135,6 +1135,7 @@ export default function ValidationPage() {
   const [applyBias,        setApplyBias]        = useState(false)
   const [busyApplyBias,    setBusyApplyBias]    = useState(false)
   const [busyStart,        setBusyStart]        = useState(false)
+  const [busyCancel,       setBusyCancel]       = useState(false)
   const [busyBias,         setBusyBias]         = useState(false)
   const [busyPromote,      setBusyPromote]      = useState(false)
   const [errMsg,           setErrMsg]           = useState('')
@@ -1322,6 +1323,21 @@ export default function ValidationPage() {
     setTuningResults({})
     setDriftData(null)
     setCotThreshold('780')
+  }
+
+  async function handleCancel() {
+    if (!activeDcId) return
+    setBusyCancel(true)
+    try {
+      await fetch('/api/validation/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ design_case_id: activeDcId }),
+      })
+      handleRetry()
+    } finally {
+      setBusyCancel(false)
+    }
   }
 
   const f = (k: keyof SetupForm, v: string) => setForm(prev => ({ ...prev, [k]: v }))
@@ -1656,13 +1672,33 @@ export default function ValidationPage() {
             ⚠ At least one plant tag must show "Found" in historian before starting.
           </p>
         )}
-        <button
-          onClick={handleStart}
-          disabled={busyStart || phase === 'running' || !form.design_case_id || !plantConfigSaved || !plantHasFound}
-          className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {busyStart ? 'Starting…' : phase === 'running' ? 'Validation running…' : 'Start Validation →'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleStart}
+            disabled={busyStart || phase === 'running' || !form.design_case_id || !plantConfigSaved || !plantHasFound}
+            className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {busyStart ? 'Starting…' : phase === 'running' ? 'Validation running…' : 'Start Validation →'}
+          </button>
+          {phase === 'running' && (
+            <button
+              onClick={handleCancel}
+              disabled={busyCancel}
+              className="px-4 py-2 rounded-lg border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50 transition-colors disabled:opacity-40"
+            >
+              {busyCancel ? 'Cancelling…' : 'Cancel Run'}
+            </button>
+          )}
+          {(phase === 'results' || phase === 'promoted') && (
+            <button
+              onClick={handleCancel}
+              disabled={busyCancel}
+              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 text-sm font-semibold hover:bg-gray-50 transition-colors disabled:opacity-40"
+            >
+              {busyCancel ? 'Resetting…' : 'Reset'}
+            </button>
+          )}
+        </div>
       </Section>
 
       {/* ── Section 2: Progress ───────────────────────────────────────────────── */}
