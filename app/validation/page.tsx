@@ -1153,7 +1153,6 @@ export default function ValidationPage() {
 
   const { data: rawDcs } = useSWR<DesignCase[]>('/api/design-cases', fetcher, { refreshInterval: 60_000 })
   const designCases: DesignCase[] = Array.isArray(rawDcs) ? rawDcs : []
-  const selectedDc = designCases.find(dc => dc.id === Number(form.design_case_id)) ?? null
   const [applyDesignBias, setApplyDesignBias] = useState(true)
 
   const { data: rawMbCols } = useSWR<string[]>(
