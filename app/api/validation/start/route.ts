@@ -63,6 +63,13 @@ export async function POST(req: NextRequest) {
     // sees only the residual operating gap vs plant data. Total = design + operating.
     const designBias = parseFloat(dc.design_cot_bias_degc ?? '0') || 0
 
+    // For uploaded cases with non-COT severity (e.g. ethane_conversion), no DCS severity
+    // tag exists — use the model's own severity_nominal as a fixed value for every row.
+    const isUploaded    = dc.source === 'uploaded_proj'
+    const isCotSeverity = !dc.severity_type_parsed || dc.severity_type_parsed === 'cot'
+    const severityNominal = dc.severity_nominal != null ? parseFloat(dc.severity_nominal) : null
+    const useFixedNominal = isUploaded && !isCotSeverity && severityNominal != null
+
     // Mark design case as running, clear old validation results.
     // cot_bias_degc is NOT set here — it is an output computed by /compute-bias after all runs complete.
     await client.query('BEGIN')
@@ -289,7 +296,8 @@ export async function POST(req: NextRequest) {
 
       // Apply Stage 1 design bias to COT — worker runs at this shifted value.
       // /compute-bias will then find only the residual operating gap vs plant data.
-      const cotCoilsim = cotDcs + designBias
+      // For uploaded non-COT cases: use fixed severity_nominal (no DCS tag available).
+      const cotCoilsim = useFixedNominal ? severityNominal! : cotDcs + designBias
 
       // 1. Pre-insert validation_results shell row
       const vrRes = await client.query(`
@@ -380,6 +388,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       queued_count:   queued,
       filtered_count: afterSampling - queued,
+      severity_source: useFixedNominal
+        ? `fixed nominal (${severityNominal} — no DCS tag for ${dc.severity_type_parsed})`
+        : 'historian COT tag',
       filters,
       // legacy shape kept for any code still reading it
       filter_breakdown: {
