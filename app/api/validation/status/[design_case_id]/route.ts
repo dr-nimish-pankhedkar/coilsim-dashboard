@@ -49,17 +49,18 @@ export async function GET(
     // Auto-transition running → complete when all simulation_tasks for this run are done
     // (Completed or Error). Non-converging validation tasks are left as pending in
     // validation_results but are marked Error in simulation_tasks — so we check tasks, not results.
-    if (status === 'running' && runsTotal > 0) {
+    if (status === 'running') {
+      // Transition when no Pending or Processing tasks remain for this design case.
       const taskRes = await pool.query(`
         SELECT
-          COUNT(*) FILTER (WHERE status IN ('Completed','Error')) AS done,
+          COUNT(*) FILTER (WHERE status IN ('Pending','Processing')) AS active,
           COUNT(*) AS total
         FROM cs_py_int.simulation_tasks
         WHERE design_case_id = $1 AND task_type = 'validation'
       `, [dcId])
-      const taskDone  = parseInt(taskRes.rows[0]?.done)  || 0
-      const taskTotal = parseInt(taskRes.rows[0]?.total) || 0
-      if (taskTotal > 0 && taskDone >= taskTotal) {
+      const taskActive = parseInt(taskRes.rows[0]?.active) || 0
+      const taskTotal  = parseInt(taskRes.rows[0]?.total)  || 0
+      if (taskTotal > 0 && taskActive === 0) {
         const failRate = runsTotal > 0 ? (runsFailed / runsTotal) * 100 : 0
         const nextStatus = failRate < 10 ? 'complete' : 'requires_review'
         await pool.query(
@@ -71,12 +72,16 @@ export async function GET(
       }
     }
 
-    // Progress based on simulation_tasks done count (includes skipped/non-converging as done)
+    // Progress based on simulation_tasks done count — scoped to latest runsTotal tasks
     const taskDoneForPct = await pool.query(`
       SELECT COUNT(*) FILTER (WHERE status IN ('Completed','Error')) AS done
-      FROM cs_py_int.simulation_tasks
-      WHERE design_case_id = $1 AND task_type = 'validation'
-    `, [dcId])
+      FROM (
+        SELECT status FROM cs_py_int.simulation_tasks
+        WHERE design_case_id = $1 AND task_type = 'validation'
+        ORDER BY id DESC
+        LIMIT $2
+      ) recent
+    `, [dcId, runsTotal || 9999])
     const doneCount = parseInt(taskDoneForPct.rows[0]?.done) || (runsComplete + runsFailed)
     const pct = runsTotal > 0 ? Math.round((doneCount / runsTotal) * 100) : 0
 

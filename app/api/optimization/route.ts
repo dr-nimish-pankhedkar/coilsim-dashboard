@@ -73,8 +73,11 @@ export async function POST(req: NextRequest) {
     const columns: Record<string, number[]> = {}
     allParams.forEach((p, i) => { columns[p] = lhsColumn(n_samples, i + 1) })
 
-    // Scale to actual ranges and queue simulation tasks
+    // Scale to actual ranges and queue simulation tasks (or reuse cached results)
     const designBias = parseFloat(dc.design_cot_bias_degc ?? '0') || 0
+    let cacheHits = 0
+    let newRuns   = 0
+
     for (let i = 0; i < n_samples; i++) {
       const pr = param_ranges
       const cot  = pr.cot.min  + columns['cot'][i]  * (pr.cot.max  - pr.cot.min)
@@ -85,35 +88,72 @@ export async function POST(req: NextRequest) {
 
       const sampleParams = { cot: round(cot, 2), flow: round(flow, 1), shc: round(shc, 4), cit: round(cit, 2), cip: round(cip, 3) }
 
-      // Insert optimization_sim_results row first
-      const osrRes = await client.query(`
-        INSERT INTO cs_py_int.optimization_sim_results (optimization_run_id, params, status)
-        VALUES ($1, $2, 'pending')
-        RETURNING id
-      `, [runId, JSON.stringify(sampleParams)])
-      const osrId = osrRes.rows[0].id
+      // Check for a prior result within tolerance before queuing a new run
+      const cached = await client.query(`
+        SELECT id, c2h4_yield_wt, task_id
+        FROM cs_py_int.optimization_sim_results
+        WHERE design_case_id = $1
+          AND ABS(cot_input  - $2) <= 0.1
+          AND ABS(flow_input - $3) <= 0.5
+          AND ABS(shc_input  - $4) <= 0.001
+          AND c2h4_yield_wt IS NOT NULL
+          AND cache_hit = FALSE
+        ORDER BY id DESC
+        LIMIT 1
+      `, [design_case_id, cot, flow, shc])
 
-      // Queue simulation task — apply design COT bias (same as validation)
-      const cotCoilsim = cot + designBias
-      const taskRes = await client.query(`
-        INSERT INTO cs_py_int.simulation_tasks
-          (status, task_type, project_name, design_case_id, coil_id, feed_id,
-           cot_input, flow_input, dilution_ratio, cit_input, cip_input, cop_input,
-           severity_type, flux_profile, optimization_sim_result_id)
-        VALUES ('Pending','optimization',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,2,4,$11)
-        RETURNING id
-      `, [dc.project_name, design_case_id, dc.coil_id, dc.feed_id,
-          cotCoilsim, flow, shc, cit, cip, parseFloat(dc.cop_atm) || 2.053, osrId])
+      if (cached.rows.length > 0) {
+        // Reuse existing result — insert a completed shell row marked cache_hit=true
+        const hit = cached.rows[0]
+        await client.query(`
+          INSERT INTO cs_py_int.optimization_sim_results
+            (optimization_run_id, design_case_id, params,
+             cot_input, flow_input, shc_input,
+             c2h4_yield_wt, cache_hit, source_task_id, status)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8,'completed')
+        `, [runId, design_case_id, JSON.stringify(sampleParams),
+            round(cot, 2), round(flow, 1), round(shc, 4),
+            hit.c2h4_yield_wt, hit.task_id])
+        cacheHits++
+      } else {
+        // Insert pending osr row, then queue a CoilSim task
+        const osrRes = await client.query(`
+          INSERT INTO cs_py_int.optimization_sim_results
+            (optimization_run_id, design_case_id, params,
+             cot_input, flow_input, shc_input, status)
+          VALUES ($1,$2,$3,$4,$5,$6,'pending')
+          RETURNING id
+        `, [runId, design_case_id, JSON.stringify(sampleParams),
+            round(cot, 2), round(flow, 1), round(shc, 4)])
+        const osrId = osrRes.rows[0].id
 
-      // Link task back to optimization_sim_results
-      await client.query(
-        'UPDATE cs_py_int.optimization_sim_results SET task_id = $1 WHERE id = $2',
-        [taskRes.rows[0].id, osrId]
-      )
+        const cotCoilsim = cot + designBias
+        const taskRes = await client.query(`
+          INSERT INTO cs_py_int.simulation_tasks
+            (status, task_type, project_name, design_case_id, coil_id, feed_id,
+             cot_input, flow_input, dilution_ratio, cit_input, cip_input, cop_input,
+             severity_type, flux_profile, optimization_sim_result_id)
+          VALUES ('Pending','optimization',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,2,4,$11)
+          RETURNING id
+        `, [dc.project_name, design_case_id, dc.coil_id, dc.feed_id,
+            cotCoilsim, flow, shc, cit, cip, parseFloat(dc.cop_atm) || 2.053, osrId])
+
+        await client.query(
+          'UPDATE cs_py_int.optimization_sim_results SET task_id = $1 WHERE id = $2',
+          [taskRes.rows[0].id, osrId]
+        )
+        newRuns++
+      }
     }
 
     await client.query('COMMIT')
-    return NextResponse.json({ run_id: runId, n_samples })
+    return NextResponse.json({
+      run_id:          runId,
+      total_samples:   n_samples,
+      cache_hits:      cacheHits,
+      new_runs_queued: newRuns,
+      cache_hit_pct:   n_samples > 0 ? parseFloat((cacheHits / n_samples * 100).toFixed(1)) : 0,
+    })
   } catch (err: any) {
     await client.query('ROLLBACK').catch(() => {})
     return NextResponse.json({ error: err?.message ?? 'DB error' }, { status: 500 })

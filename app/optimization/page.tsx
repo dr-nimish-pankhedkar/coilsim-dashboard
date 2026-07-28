@@ -100,6 +100,7 @@ export default function OptimizationPage() {
   const [launching, setLaunching] = useState(false)
   const [fitting, setFitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [cacheStats, setCacheStats] = useState<{ total: number; hits: number; new_runs: number; pct: number } | null>(null)
 
   // Fetch past optimization runs for selected design case
   const runsKey = selectedDcId ? `/api/optimization?design_case_id=${selectedDcId}` : null
@@ -144,7 +145,7 @@ export default function OptimizationPage() {
 
   async function launch() {
     if (!selectedDcId) return
-    setLaunching(true); setError(null)
+    setLaunching(true); setError(null); setCacheStats(null)
     try {
       const res = await fetch('/api/optimization', {
         method: 'POST',
@@ -160,6 +161,9 @@ export default function OptimizationPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       setActiveRunId(data.run_id)
+      if (data.total_samples != null) {
+        setCacheStats({ total: data.total_samples, hits: data.cache_hits, new_runs: data.new_runs_queued, pct: data.cache_hit_pct })
+      }
       mutateRuns()
     } catch (e: any) {
       setError(e.message)
@@ -291,6 +295,15 @@ export default function OptimizationPage() {
             {launching ? 'Launching…' : simsRunning ? 'Running…' : 'Run optimization'}
           </button>
         </div>
+
+        {/* Cache stats banner */}
+        {cacheStats && (
+          <div className="mb-5 bg-blue-50 border border-blue-200 rounded-xl px-5 py-3 text-sm text-blue-800 flex flex-wrap gap-x-6 gap-y-1">
+            <span><span className="font-semibold">{cacheStats.total}</span> samples total</span>
+            <span><span className="font-semibold text-green-700">{cacheStats.hits}</span> cache hits ({cacheStats.pct}%)</span>
+            <span><span className="font-semibold">{cacheStats.new_runs}</span> new CoilSim runs queued</span>
+          </div>
+        )}
 
         {/* Progress + results */}
         {displayRun && (
