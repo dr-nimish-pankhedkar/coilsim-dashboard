@@ -55,6 +55,16 @@ export async function POST(req: NextRequest) {
 
     await client.query('BEGIN')
 
+    // Cancel any Pending/Processing/Error optimization tasks from prior runs on this design case
+    // so a fresh launch is always clean — no stale tasks left behind from aborted runs
+    await client.query(`
+      UPDATE cs_py_int.simulation_tasks
+      SET status = 'Cancelled'
+      WHERE design_case_id = $1
+        AND task_type = 'optimization'
+        AND status IN ('Pending', 'Processing', 'Error')
+    `, [design_case_id])
+
     // Create the optimization run record
     const runRes = await client.query(`
       INSERT INTO cs_py_int.optimization_runs
