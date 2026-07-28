@@ -5,7 +5,7 @@ import useSWR from 'swr'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
-interface DesignCase { id: number; name: string; project_name: string; coil_id: number; feed_id: number }
+interface DesignCase { id: number; name: string; project_name: string; coil_id: number; feed_id: number; uploaded_proj_id?: number | null; source?: string | null }
 
 interface ParamRange { min: number; max: number; current: number }
 interface ParamRanges { cot: ParamRange; flow: ParamRange; shc: ParamRange }
@@ -188,6 +188,9 @@ export default function OptimizationPage() {
     }
   }
 
+  const selectedDc = designCases.find(d => d.id === selectedDcId) ?? null
+  const isUploaded = !!(selectedDc?.uploaded_proj_id || selectedDc?.source === 'uploaded_proj')
+
   const displayRun = activeRun ?? (runs.length > 0 ? runs[0] : null)
   const simsRunning = displayRun?.status === 'running_sims'
   const simsComplete = displayRun && displayRun.n_sims_complete >= displayRun.n_sims_total && displayRun.n_sims_total > 0
@@ -244,7 +247,9 @@ export default function OptimizationPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(Object.keys(ranges) as (keyof ParamRanges)[]).map(p => (
+                  {(Object.keys(ranges) as (keyof ParamRanges)[])
+                    .filter(p => !(isUploaded && p === 'cot'))
+                    .map(p => (
                     <tr key={p} className="border-t border-gray-50">
                       <td className="py-1.5 pr-3 font-medium text-gray-700">
                         {PARAM_LABELS[p].label}

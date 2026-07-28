@@ -51,6 +51,7 @@ export async function POST(req: NextRequest) {
     )
     if (!dcRes.rows.length) return NextResponse.json({ error: 'Design case not found' }, { status: 404 })
     const dc = dcRes.rows[0]
+    const isUploaded = !!(dc.uploaded_proj_id || dc.source === 'uploaded_proj')
 
     await client.query('BEGIN')
 
@@ -65,10 +66,10 @@ export async function POST(req: NextRequest) {
         JSON.stringify(constraint_json ?? param_ranges)])
     const runId: number = runRes.rows[0].id
 
-    // Generate LHS samples
-    const params = ['cot', 'flow', 'shc'] as const
+    // Generate LHS samples — uploaded models sweep flow+SHC only (severity is fixed)
+    const lhsDims = isUploaded ? ['flow', 'shc'] as const : ['cot', 'flow', 'shc'] as const
     const extraParams = ['cit', 'cip'] as const
-    const allParams = [...params, ...extraParams.filter(p => param_ranges[p])]
+    const allParams = [...lhsDims, ...extraParams.filter(p => param_ranges[p])]
 
     const columns: Record<string, number[]> = {}
     allParams.forEach((p, i) => { columns[p] = lhsColumn(n_samples, i + 1) })
@@ -80,30 +81,41 @@ export async function POST(req: NextRequest) {
 
     for (let i = 0; i < n_samples; i++) {
       const pr = param_ranges
-      const cot  = pr.cot.min  + columns['cot'][i]  * (pr.cot.max  - pr.cot.min)
       const flow = pr.flow.min + columns['flow'][i] * (pr.flow.max - pr.flow.min)
       const shc  = pr.shc.min  + columns['shc'][i]  * (pr.shc.max  - pr.shc.min)
+      const cot  = isUploaded
+        ? (parseFloat(dc.severity_nominal) || 0)   // fixed — not patched by worker
+        : (pr.cot.min + (columns['cot'] as number[])[i] * (pr.cot.max - pr.cot.min))
       const cit  = pr.cit ? pr.cit.min + (columns['cit']?.[i] ?? 0.5) * (pr.cit.max - pr.cit.min) : (parseFloat(dc.cit_degc) || 668)
       const cip  = pr.cip ? pr.cip.min + (columns['cip']?.[i] ?? 0.5) * (pr.cip.max - pr.cip.min) : (parseFloat(dc.cip_atm) || 2.59)
 
       const sampleParams = { cot: round(cot, 2), flow: round(flow, 1), shc: round(shc, 4), cit: round(cit, 2), cip: round(cip, 3) }
 
-      // Check for a prior result within tolerance before queuing a new run
-      const cached = await client.query(`
-        SELECT id, c2h4_yield_wt, task_id
-        FROM cs_py_int.optimization_sim_results
-        WHERE design_case_id = $1
-          AND ABS(cot_input  - $2) <= 0.1
-          AND ABS(flow_input - $3) <= 0.5
-          AND ABS(shc_input  - $4) <= 0.001
-          AND c2h4_yield_wt IS NOT NULL
-          AND cache_hit = FALSE
-        ORDER BY id DESC
-        LIMIT 1
-      `, [design_case_id, cot, flow, shc])
+      // Cache lookup — uploaded models match on flow+SHC only (COT is fixed/irrelevant)
+      const cached = isUploaded
+        ? await client.query(`
+            SELECT id, c2h4_yield_wt, task_id
+            FROM cs_py_int.optimization_sim_results
+            WHERE design_case_id = $1
+              AND ABS(flow_input - $2) <= 0.5
+              AND ABS(shc_input  - $3) <= 0.001
+              AND c2h4_yield_wt IS NOT NULL
+              AND cache_hit = FALSE
+            ORDER BY id DESC LIMIT 1
+          `, [design_case_id, flow, shc])
+        : await client.query(`
+            SELECT id, c2h4_yield_wt, task_id
+            FROM cs_py_int.optimization_sim_results
+            WHERE design_case_id = $1
+              AND ABS(cot_input  - $2) <= 0.1
+              AND ABS(flow_input - $3) <= 0.5
+              AND ABS(shc_input  - $4) <= 0.001
+              AND c2h4_yield_wt IS NOT NULL
+              AND cache_hit = FALSE
+            ORDER BY id DESC LIMIT 1
+          `, [design_case_id, cot, flow, shc])
 
       if (cached.rows.length > 0) {
-        // Reuse existing result — insert a completed shell row marked cache_hit=true
         const hit = cached.rows[0]
         await client.query(`
           INSERT INTO cs_py_int.optimization_sim_results
@@ -112,11 +124,10 @@ export async function POST(req: NextRequest) {
              c2h4_yield_wt, cache_hit, source_task_id, status)
           VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8,'completed')
         `, [runId, design_case_id, JSON.stringify(sampleParams),
-            round(cot, 2), round(flow, 1), round(shc, 4),
+            isUploaded ? null : round(cot, 2), round(flow, 1), round(shc, 4),
             hit.c2h4_yield_wt, hit.task_id])
         cacheHits++
       } else {
-        // Insert pending osr row, then queue a CoilSim task
         const osrRes = await client.query(`
           INSERT INTO cs_py_int.optimization_sim_results
             (optimization_run_id, design_case_id, params,
@@ -124,10 +135,10 @@ export async function POST(req: NextRequest) {
           VALUES ($1,$2,$3,$4,$5,$6,'pending')
           RETURNING id
         `, [runId, design_case_id, JSON.stringify(sampleParams),
-            round(cot, 2), round(flow, 1), round(shc, 4)])
+            isUploaded ? null : round(cot, 2), round(flow, 1), round(shc, 4)])
         const osrId = osrRes.rows[0].id
 
-        const cotCoilsim = cot + designBias
+        const cotCoilsim = isUploaded ? null : round(cot + designBias, 2)
         const taskRes = await client.query(`
           INSERT INTO cs_py_int.simulation_tasks
             (status, task_type, project_name, design_case_id, coil_id, feed_id,
