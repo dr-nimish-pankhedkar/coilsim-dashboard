@@ -87,7 +87,7 @@ export async function GET(
     })
 
     const allOk = checks.every(c => c.ok)
-    return NextResponse.json({ design_case_id: dcId, name: dc.name, all_ok: allOk, checks })
+    return NextResponse.json({ design_case_id: dcId, name: dc.name, all_ok: allOk, checks, validation_status: dc.validation_status })
   } catch (err: any) {
     return NextResponse.json({ error: err?.message ?? 'DB error' }, { status: 500 })
   }

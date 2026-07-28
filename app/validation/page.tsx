@@ -1184,26 +1184,26 @@ export default function ValidationPage() {
     return () => clearInterval(id)
   }, [phase, pollStatus])
 
-  // On design case selection in setup phase, check if a completed run already exists
+  // When preflight loads, auto-transition if a completed/running validation already exists
   useEffect(() => {
-    if (phase !== 'setup' || !form.design_case_id) return
+    if (phase !== 'setup' || !preflight || !form.design_case_id) return
     const dcId = Number(form.design_case_id)
-    if (!dcId) return
-    fetch(`/api/validation/status/${dcId}`)
-      .then(r => r.ok ? r.json() : null)
-      .then((data: ValidationStatusResponse | null) => {
-        if (!data) return
-        if (data.status === 'complete' || data.status === 'requires_review') {
+    const vs = (preflight as any).validation_status as string | null
+    if (vs === 'complete' || vs === 'requires_review') {
+      fetch(`/api/validation/status/${dcId}`)
+        .then(r => r.ok ? r.json() : null)
+        .then((data: ValidationStatusResponse | null) => {
+          if (!data) return
           setActiveDcId(dcId)
           setPollData(data)
           setPhase('results')
-        } else if (data.status === 'running') {
-          setActiveDcId(dcId)
-          setPhase('running')
-        }
-      })
-      .catch(() => {})
-  }, [form.design_case_id, phase])
+        })
+        .catch(() => {})
+    } else if (vs === 'running') {
+      setActiveDcId(dcId)
+      setPhase('running')
+    }
+  }, [preflight, phase, form.design_case_id])
 
   const selectedDc = designCases.find(d => d.id === Number(form.design_case_id)) ?? null
 
