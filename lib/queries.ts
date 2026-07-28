@@ -298,7 +298,8 @@ export async function getAllDesignCases(): Promise<DesignCase[]> {
   const res = await pool.query<DesignCase>(
     `SELECT id, name, coil_id, feed_id, project_name, created_at,
             uploaded_proj_id, verification_status, verified_at,
-            verification_error, severity_type_parsed, severity_nominal
+            verification_error, severity_type_parsed, severity_nominal,
+            design_cot_bias_degc
      FROM cs_py_int.design_cases ORDER BY id DESC`
   )
   return res.rows

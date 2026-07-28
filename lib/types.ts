@@ -37,6 +37,7 @@ export interface DesignCase {
   verification_error: string | null
   severity_type_parsed: string | null
   severity_nominal: number | null
+  design_cot_bias_degc: number | null
 }
 
 export interface CoilCokeProfile {

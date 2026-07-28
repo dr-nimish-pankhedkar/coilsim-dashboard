@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
       validation_mode = 'design',
       tuning_params = null,
       cot_threshold_degc = 780,
+      apply_cot_bias = true,
     } = body
 
     if (!design_case_id || !start_date || !end_date) {
@@ -59,9 +60,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Design case not found' }, { status: 404 })
     }
     const dc = dcRes.rows[0]
-    // Stage 1 design COT bias — pre-applied to every validation COT so /compute-bias
-    // sees only the residual operating gap vs plant data. Total = design + operating.
-    const designBias = parseFloat(dc.design_cot_bias_degc ?? '0') || 0
+    // Design COT bias — optionally pre-applied to every validation COT.
+    // When apply_cot_bias=false, raw DCS COT is used and /compute-bias sees the full gap.
+    const designBias = apply_cot_bias ? (parseFloat(dc.design_cot_bias_degc ?? '0') || 0) : 0
 
     // Severity resolution for non-COT cases:
     // 1. If severity_dcs_tag is configured → try hourly_data per timestamp
@@ -122,6 +123,7 @@ export async function POST(req: NextRequest) {
         validation_c2h4_error_pct = NULL,
         validated_at              = NULL,
         validation_mode           = $5,
+        apply_cot_bias            = $8,
         tuning_params             = CASE WHEN $6::text IS NOT NULL
                                       THEN $6::jsonb
                                       ELSE COALESCE(tuning_params, '{}')
@@ -129,7 +131,7 @@ export async function POST(req: NextRequest) {
        WHERE id = $4`,
       [start_date, end_date, mb_filter_pct, design_case_id,
        validation_mode, tuning_params ? JSON.stringify(tuning_params) : null,
-       mb_formula || 'mass_balance_error_pct']
+       mb_formula || 'mass_balance_error_pct', apply_cot_bias]
     )
     // Remove stale validation results for this design case
     await client.query(

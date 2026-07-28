@@ -1153,6 +1153,8 @@ export default function ValidationPage() {
 
   const { data: rawDcs } = useSWR<DesignCase[]>('/api/design-cases', fetcher, { refreshInterval: 60_000 })
   const designCases: DesignCase[] = Array.isArray(rawDcs) ? rawDcs : []
+  const selectedDc = designCases.find(dc => dc.id === Number(form.design_case_id)) ?? null
+  const [applyDesignBias, setApplyDesignBias] = useState(true)
 
   const { data: rawMbCols } = useSWR<string[]>(
     activeTab === 'operating' ? '/api/validation/mb-columns' : null,
@@ -1238,6 +1240,7 @@ export default function ValidationPage() {
           cot_threshold_degc:  Number(cotThreshold) || 780,
           validation_mode:     activeTab,
           tuning_params:       tuningParams,
+          apply_cot_bias:      applyDesignBias,
         }),
       })
       const json = await res.json()
@@ -1657,6 +1660,40 @@ export default function ValidationPage() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Apply design COT bias toggle — only shown when design validation bias is available */}
+        {selectedDc?.design_cot_bias_degc != null && (
+          <div className={`rounded-xl border px-4 py-3 flex items-center justify-between gap-4 ${
+            applyDesignBias ? 'border-blue-200 bg-blue-50' : 'border-gray-200 bg-white'
+          }`}>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-gray-700">
+                Apply design COT bias
+                <span className={`ml-2 text-sm font-semibold ${applyDesignBias ? 'text-blue-700' : 'text-gray-400'}`}>
+                  {Number(selectedDc.design_cot_bias_degc) >= 0 ? '+' : ''}{Number(selectedDc.design_cot_bias_degc).toFixed(1)} °C
+                </span>
+              </p>
+              <p className="text-[11px] text-gray-500 mt-0.5">
+                {applyDesignBias
+                  ? 'Design COT bias will be added to DCS COT for every hourly CoilSim run.'
+                  : 'Runs will use raw DCS COT with no design bias applied.'}
+              </p>
+            </div>
+            <button
+              onClick={() => setApplyDesignBias(v => !v)}
+              disabled={phase === 'running'}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
+                applyDesignBias ? 'bg-blue-500' : 'bg-gray-300'
+              }`}
+              role="switch"
+              aria-checked={applyDesignBias}
+            >
+              <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                applyDesignBias ? 'translate-x-5' : 'translate-x-0'
+              }`} />
+            </button>
           </div>
         )}
 
