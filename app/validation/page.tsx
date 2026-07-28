@@ -1184,6 +1184,27 @@ export default function ValidationPage() {
     return () => clearInterval(id)
   }, [phase, pollStatus])
 
+  // On design case selection in setup phase, check if a completed run already exists
+  useEffect(() => {
+    if (phase !== 'setup' || !form.design_case_id) return
+    const dcId = Number(form.design_case_id)
+    if (!dcId) return
+    fetch(`/api/validation/status/${dcId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: ValidationStatusResponse | null) => {
+        if (!data) return
+        if (data.status === 'complete' || data.status === 'requires_review') {
+          setActiveDcId(dcId)
+          setPollData(data)
+          setPhase('results')
+        } else if (data.status === 'running') {
+          setActiveDcId(dcId)
+          setPhase('running')
+        }
+      })
+      .catch(() => {})
+  }, [form.design_case_id, phase])
+
   const selectedDc = designCases.find(d => d.id === Number(form.design_case_id)) ?? null
 
   // ── handlers ────────────────────────────────────────────────────────────────
