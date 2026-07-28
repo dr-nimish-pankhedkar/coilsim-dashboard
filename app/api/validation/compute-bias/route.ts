@@ -103,7 +103,8 @@ export async function POST(req: NextRequest) {
       SELECT
         furnace_id,
         pass_id,
-        SUM(c2h4_kg_hr)        AS sim_c2h4_kg_hr,
+        -- sim matched to plant: only count rows where plant data exists
+        SUM(c2h4_kg_hr)        FILTER (WHERE plant_c2h4_kg_hr IS NOT NULL) AS sim_c2h4_kg_hr,
         SUM(plant_c2h4_kg_hr)  AS plant_c2h4_kg_hr,
         AVG(c2h4_yield_wt)     AS avg_c2h4_yield_wt,
         AVG(coil_heat_kj_hr)   AS avg_coil_heat,
