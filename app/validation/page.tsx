@@ -1190,15 +1190,8 @@ export default function ValidationPage() {
     const dcId = Number(form.design_case_id)
     const vs = (preflight as any).validation_status as string | null
     if (vs === 'complete' || vs === 'requires_review') {
-      fetch(`/api/validation/status/${dcId}`)
-        .then(r => r.ok ? r.json() : null)
-        .then((data: ValidationStatusResponse | null) => {
-          if (!data) return
-          setActiveDcId(dcId)
-          setPollData(data)
-          setPhase('results')
-        })
-        .catch(() => {})
+      setActiveDcId(dcId)
+      setPhase('results')
     } else if (vs === 'running') {
       setActiveDcId(dcId)
       setPhase('running')

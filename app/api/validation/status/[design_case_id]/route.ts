@@ -21,21 +21,23 @@ export async function GET(
         dc.c2h4_yield_bias_kg_hr,
         COUNT(vr.id) FILTER (WHERE vr.run_status = 'success') AS runs_complete,
         COUNT(vr.id) FILTER (WHERE vr.run_status = 'failed')  AS runs_failed_live,
-        COUNT(vr.id) FILTER (WHERE vr.run_status = 'pending') AS runs_pending,
-        COALESCE(
-          JSON_AGG(
-            JSON_BUILD_OBJECT(
-              'month', TO_CHAR(DATE_TRUNC('month', vr.timestamp), 'YYYY-MM'),
-              'sim_c2h4_mt', ROUND((SUM(vr.c2h4_kg_hr) OVER (PARTITION BY DATE_TRUNC('month', vr.timestamp)) / 1000)::numeric, 2)
-            ) ORDER BY DATE_TRUNC('month', vr.timestamp)
-          ) FILTER (WHERE vr.run_status = 'success' AND vr.c2h4_kg_hr IS NOT NULL),
-          '[]'
-        ) AS monthly_raw
+        COUNT(vr.id) FILTER (WHERE vr.run_status = 'pending') AS runs_pending
       FROM cs_py_int.design_cases dc
       LEFT JOIN cs_py_int.validation_results vr ON vr.design_case_id = dc.id
       WHERE dc.id = $1
       GROUP BY dc.id, dc.validation_status, dc.validation_runs_total,
                dc.validation_runs_failed, dc.cot_bias_degc, dc.c2h4_yield_bias_kg_hr
+    `, [dcId])
+
+    // Monthly rollup in a separate query (window fn inside aggregate is illegal in PG)
+    const monthlyRes = await pool.query(`
+      SELECT
+        TO_CHAR(DATE_TRUNC('month', timestamp), 'YYYY-MM') AS month,
+        ROUND((SUM(c2h4_kg_hr) / 1000)::numeric, 2) AS sim_c2h4_mt
+      FROM cs_py_int.validation_results
+      WHERE design_case_id = $1 AND run_status = 'success' AND c2h4_kg_hr IS NOT NULL
+      GROUP BY DATE_TRUNC('month', timestamp)
+      ORDER BY 1
     `, [dcId])
 
     if (!res.rows.length) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -85,15 +87,11 @@ export async function GET(
     const doneCount = parseInt(taskDoneForPct.rows[0]?.done) || (runsComplete + runsFailed)
     const pct = runsTotal > 0 ? Math.round((doneCount / runsTotal) * 100) : 0
 
-    // Deduplicate monthly rows (window fn produces one row per vr row)
-    const monthlyRaw: Array<{ month: string; sim_c2h4_mt: number }> = row.monthly_raw || []
-    const monthMap = new Map<string, number>()
-    for (const m of monthlyRaw) {
-      if (m.month) monthMap.set(m.month, parseFloat(String(m.sim_c2h4_mt)) || 0)
-    }
-    const months = Array.from(monthMap.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([month, sim_c2h4_mt]) => ({ month, sim_c2h4_mt, error_pct: null as number | null }))
+    const months = monthlyRes.rows.map(m => ({
+      month:        m.month as string,
+      sim_c2h4_mt:  parseFloat(m.sim_c2h4_mt) || 0,
+      error_pct:    null as number | null,
+    }))
 
     const runsNotConverged = parseInt(row.runs_pending) || 0
 
