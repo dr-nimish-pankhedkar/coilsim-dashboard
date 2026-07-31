@@ -507,7 +507,6 @@ export default function OptimizationPage() {
               </div>
             )}
           </div>
-        </div>
       </div>
     </div>
   )
